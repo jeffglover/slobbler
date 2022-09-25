@@ -73,14 +73,14 @@ class MPRISListener(object):
         self.playing = True
         track_info = self.extract_track_info(metadata)
         self.logger.info(f"[{sender}] now playing: {track_info}")
-        self.track_update_fn(track_info)
+        self.track_update_fn(sender, track_info)
 
     def stopped_playing(self, sender):
         # avoid multiple stop callbacks
         if self.playing:
             self.playing = False
             self.logger.info(f"[{sender}] stopped_playing")
-            self.stopped_playing_fn()
+            self.stopped_playing_fn(sender)
 
     def get_interface(self, service):
         player = self.bus.get_object(service, self.__mpris_path)
@@ -196,7 +196,7 @@ class SlackStatus(object):
         )
         return int(time.mktime(expiration_time.timetuple()))
 
-    def handle_track_update(self, track_info):
+    def handle_track_update(self, sender, track_info):
         if self.can_update() and track_info["artist"] and track_info["title"]:
             status = self.__track_message_fmt.format(**track_info)
             status = (
@@ -208,9 +208,9 @@ class SlackStatus(object):
             self.logger.info(f"Setting status: {self.playing_emoji} {status}")
             self.write_status(status, self.playing_emoji, track_info["length"])
 
-    def handle_stop_playing(self):
+    def handle_stop_playing(self, sender):
         if self.can_update():
-            self.logger("Clearing status")
+            self.logger.info("Clearing status")
             self.write_status("", "", 0)
 
     def can_update(self):
@@ -221,7 +221,7 @@ class SlackStatus(object):
         if current_emoji in [self.playing_emoji, ""]:
             return current_status
 
-        self.logger(f"Cannot update because emoji is set: {current_emoji}")
+        self.logger.info(f"Cannot update because emoji is set: {current_emoji}")
         return False
 
     def read_status(self):
