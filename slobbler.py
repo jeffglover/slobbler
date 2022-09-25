@@ -149,6 +149,7 @@ class MPRISListener(object):
         try:
             playback_status = message.get(
                 self.__playback_status,
+                # on Metadata updates, query the interface to get the PlaybackStatus
                 self.interfaces[sender]["interface"].Get(
                     interface_name, self.__playback_status
                 ),
@@ -159,7 +160,7 @@ class MPRISListener(object):
                 # if something is playing, fetch the metadata
                 metadata = message.get(
                     self.__metadata,
-                    # on PlaybackStatus we have to query the interface for Metadata
+                    # on PlaybackStatus, query the interface for Metadata
                     self.interfaces[sender]["interface"].Get(
                         interface_name, self.__metadata
                     ),
