@@ -23,16 +23,10 @@ class MPRISListener(object):
     __mpris_interface = "org.mpris.MediaPlayer2."
     __mpris_path = "/org/mpris/MediaPlayer2"
 
-    def __init__(
-        self, track_update_fn, stopped_playing_fn, accepted_message_types=None
-    ):
+    def __init__(self, track_update_fn, stopped_playing_fn):
         self.track_update_fn = track_update_fn
         self.stopped_playing_fn = stopped_playing_fn
-        self.accepted_message_types = (
-            accepted_message_types
-            if accepted_message_types
-            else [self.__playback_status, self.__metadata]
-        )
+        self.accepted_message_types = [self.__playback_status, self.__metadata]
         self.playing = False
         self.interfaces = {}
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -44,6 +38,8 @@ class MPRISListener(object):
         self.session_bus = self.bus.get_object(
             "org.freedesktop.DBus", "/org/freedesktop/DBus"
         )
+
+        # listen to new players and exiting players
         self.session_bus.connect_to_signal(
             "NameOwnerChanged", self.handle_player_connection
         )
@@ -70,6 +66,7 @@ class MPRISListener(object):
 
     @classmethod
     def strip_mpris(cls, player_name):
+        # human friendly name
         return player_name.replace(cls.__mpris_interface, "")
 
     def track_updated(self, sender, metadata):
@@ -142,6 +139,7 @@ class MPRISListener(object):
         if not any(
             message_type in message for message_type in self.accepted_message_types
         ):
+            # some players send noise around their capabilities, ignore that
             return
 
         metadata = None
@@ -206,11 +204,13 @@ class SlackStatus(object):
                 if len(status) > self.__max_status_size
                 else status
             )
+
             self.logger.info(f"Setting status: {self.playing_emoji} {status}")
             self.write_status(status, self.playing_emoji, track_info["length"])
 
     def handle_stop_playing(self):
         if self.can_update():
+            self.logger("Clearing status")
             self.write_status("", "", 0)
 
     def can_update(self):
