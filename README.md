@@ -15,13 +15,13 @@ Create a config file with the following
 
 ```yaml
 user_id: U123456 # user id from slack
-user_oauth_token: xoxp-token # oath token from your slack app configuration
+user_oauth_token: xoxp-token # oauth token from your slack app configuration
 playing_emoji: ":notes:" # emoji to use when playing music
 ```
 
 ### Running
 
-`./slobbler.py config.yaml`
+`./slobbler.py --config config.yaml`
 
 ### systemd
 

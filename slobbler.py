@@ -39,7 +39,7 @@ class MPRISListener(object):
             "org.freedesktop.DBus", "/org/freedesktop/DBus"
         )
 
-        # listen to new players and exiting players
+        # listen to new and exiting players
         self.session_bus.connect_to_signal(
             "NameOwnerChanged", self.handle_player_connection
         )
@@ -197,16 +197,19 @@ class SlackStatus(object):
         return int(time.mktime(expiration_time.timetuple()))
 
     def handle_track_update(self, sender, track_info):
-        if self.can_update() and track_info["artist"] and track_info["title"]:
-            status = self.__track_message_fmt.format(**track_info)
-            status = (
-                (status[: self.__max_status_size] + "...")
-                if len(status) > self.__max_status_size
-                else status
+        current_status = self.can_update()
+        if current_status and track_info["artist"] and track_info["title"]:
+            status_text = self.__track_message_fmt.format(**track_info)
+            status_text = (
+                (status_text[: self.__max_status_size] + "...")
+                if len(status_text) > self.__max_status_size
+                else status_text
             )
-
-            self.logger.info(f"Setting status: {self.playing_emoji} {status}")
-            self.write_status(status, self.playing_emoji, track_info["length"])
+            if status_text == current_status["status_text"]:
+                self.logger.warning("Skipping status update, nothing to change")
+            else:
+                self.logger.info(f"Setting status: {self.playing_emoji} {status_text}")
+                self.write_status(status_text, self.playing_emoji, track_info["length"])
 
     def handle_stop_playing(self, sender):
         if self.can_update():
@@ -231,7 +234,7 @@ class SlackStatus(object):
             headers=self.headers,
             params=params,
         )
-        assert response.ok, "Bad response from server"
+        assert response.ok, f"Bad response from server [{response}]: {response.text}"
 
         json_response = response.json()
         assert json_response["ok"], f"Failed because {json_response['error']}"
@@ -257,7 +260,7 @@ class SlackStatus(object):
             params=params,
             data=json.dumps(status_payload).encode("utf-8"),
         )
-        assert response.ok, "Bad response from server"
+        assert response.ok, f"Bad response from server [{response}]: {response.text}"
 
         json_response = response.json()
         assert json_response["ok"], f"Failed because {json_response['error']}"
