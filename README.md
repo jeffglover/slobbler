@@ -6,6 +6,7 @@ Slack status scrobbler. Updates slack status based upon any media player using t
 
 - Connects to all players, publishes only the playing one
 - Clears status on pause or player exit
+- Only updates Slack status if no status or already playing is set. Won't override an existing status. Detection based upon the status emoji
 - Filters when track is missing artist info, likely a video on a webpage
 
 ### Configuration
@@ -24,6 +25,9 @@ playing_emoji: ":notes:" # emoji to use when playing music
 
 ### systemd
 
+Use systemd to keep it running in the background
+
+edit `~/.config/systemd/user/slobbler.service`
 ```
 [Unit]
 Description=Slack status scrobbler
@@ -47,11 +51,13 @@ WantedBy=default.target
     * Track/Artist name
     * Player name
     * If it's a browser, can I tell what website it's on?
+- Better detection of playing players after more than one starts playing (toggle play/pause to fix it isn't a big deal) 
 
 # Useful references
 
-https://github.com/curtisgibby/mpris-slack-python/blob/master/mpris-track-change-to-slack.py
-https://dbus.freedesktop.org/doc/dbus-python/tutorial.html#signal-matching
-https://gitlab.freedesktop.org/dbus/dbus-python/-/blob/master/examples/example-async-client.py
-https://muffinresearch.co.uk/linux-spotify-track-notifier-with-added-d-bus-love/
-https://github.com/altdesktop/playerctl/blob/master/examples/basic-example.py
+- [MPRIS Slack Integration](https://github.com/curtisgibby/mpris-slack-python)
+  Good starting place for me, helped with figuring out how to work with DBus/MPRIS. This must be run after a player is playing. Won't handle players exiting or starting.
+- [Linux: Spotify Track Notifier](https://muffinresearch.co.uk/linux-spotify-track-notifier-with-added-d-bus-love/)
+  Helpful reference when working with DBus/MPRIS. Only works with Spotify and doesn't do anything with Slack
+- [dbus-python tutorial](https://dbus.freedesktop.org/doc/dbus-python/tutorial.html)
+- [dbus-python examples](https://gitlab.freedesktop.org/dbus/dbus-python/-/tree/master/examples)
