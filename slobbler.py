@@ -9,6 +9,7 @@ import time
 
 import dbus
 import dbus.mainloop.glib
+from dbus.exceptions import DBusException
 import requests
 from gi.repository import GLib
 from yaml import safe_load as load
@@ -153,13 +154,19 @@ class MPRISListener(object):
 
         if playing:
             # if something is playing, fetch the metadata
-            metadata = message.get(
-                self.__metadata,
-                # on PlaybackStatus we have to query the interface for Metadata
-                self.interfaces[sender]["interface"].Get(
-                    interface_name, self.__metadata
-                ),
-            )
+            try:
+                metadata = message.get(
+                    self.__metadata,
+                    # on PlaybackStatus we have to query the interface for Metadata
+                    self.interfaces[sender]["interface"].Get(
+                        interface_name, self.__metadata
+                    ),
+                )
+            except DBusException as err:
+                detailed_sender = f"{self.interfaces[sender]['name']}{sender}"
+                self.logger.error(
+                    f"Failed to query metadata. {detailed_sender} might have shutdown: {err}"
+                )
 
         if playing and metadata:
             self.track_updated(self.interfaces[sender]["name"], metadata)
