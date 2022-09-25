@@ -167,7 +167,7 @@ class MPRISListener(object):
         except DBusException as err:
             detailed_sender = f"{self.interfaces[sender]['name']}{sender}"
             self.logger.error(
-                f"Failed to query metadata. {detailed_sender} might have shutdown: {err}"
+                f"Failed to query player interface. {detailed_sender} might have shutdown: {err}"
             )
 
         if playing and metadata:
