@@ -143,18 +143,20 @@ class MPRISListener(object):
             # some players send noise around their capabilities, ignore that
             return
 
+        playing = False
         metadata = None
-        playback_status = message.get(
-            self.__playback_status,
-            self.interfaces[sender]["interface"].Get(
-                interface_name, self.__playback_status
-            ),
-        )
-        playing = playback_status == "Playing"
 
-        if playing:
-            # if something is playing, fetch the metadata
-            try:
+        try:
+            playback_status = message.get(
+                self.__playback_status,
+                self.interfaces[sender]["interface"].Get(
+                    interface_name, self.__playback_status
+                ),
+            )
+            playing = playback_status == "Playing"
+
+            if playing:
+                # if something is playing, fetch the metadata
                 metadata = message.get(
                     self.__metadata,
                     # on PlaybackStatus we have to query the interface for Metadata
@@ -162,11 +164,11 @@ class MPRISListener(object):
                         interface_name, self.__metadata
                     ),
                 )
-            except DBusException as err:
-                detailed_sender = f"{self.interfaces[sender]['name']}{sender}"
-                self.logger.error(
-                    f"Failed to query metadata. {detailed_sender} might have shutdown: {err}"
-                )
+        except DBusException as err:
+            detailed_sender = f"{self.interfaces[sender]['name']}{sender}"
+            self.logger.error(
+                f"Failed to query metadata. {detailed_sender} might have shutdown: {err}"
+            )
 
         if playing and metadata:
             self.track_updated(self.interfaces[sender]["name"], metadata)
