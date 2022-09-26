@@ -89,9 +89,10 @@ class MPRISListener(object):
         return player.bus_name, dbus.Interface(player, self.__dbus_interface)
 
     def update_interface(self, player):
+        friendly_player_name = self.strip_mpris(player)
         bus_name, interface = self.get_interface(player)
         self.interfaces[bus_name] = {
-            "name": self.strip_mpris(player),
+            "name": friendly_player_name,
             "interface": interface,
         }
 
@@ -102,6 +103,9 @@ class MPRISListener(object):
             self.playing = True
 
         self.connect_signal(bus_name)
+        self.logger.info(
+            f"[{friendly_player_name}{bus_name}] Connected, {playback_status}"
+        )
         return bus_name
 
     def find_players(self):
@@ -123,8 +127,6 @@ class MPRISListener(object):
             dbus_interface=self.__dbus_interface,
             sender_keyword="sender",
         )
-
-        self.logger.info(f"[{player['name']}{bus_name}] Connected")
 
     def handle_player_connection(self, player, old_bus_id, new_bus_id):
         if player.startswith(self.__mpris_interface):
