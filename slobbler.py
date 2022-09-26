@@ -5,12 +5,12 @@ import datetime
 import json
 import logging
 import os
-import time
+from calendar import timegm
 
 import dbus
 import dbus.mainloop.glib
-from dbus.exceptions import DBusException
 import requests
+from dbus.exceptions import DBusException
 from gi.repository import GLib
 from yaml import safe_load as load
 
@@ -204,7 +204,7 @@ class SlackStatus(object):
         expiration_time = datetime.datetime.utcnow() + datetime.timedelta(
             seconds=length_seconds
         )
-        return int(time.mktime(expiration_time.timetuple()))
+        return timegm(expiration_time.timetuple())
 
     def handle_track_update(self, sender, track_info):
         current_status = self.can_update()
@@ -219,7 +219,11 @@ class SlackStatus(object):
                 self.logger.warning("Skipping status update, nothing to change")
             else:
                 self.logger.info(f"Setting status: {self.playing_emoji} {status_text}")
-                self.write_status(status_text, self.playing_emoji, track_info["length"])
+                self.write_status(
+                    status_text,
+                    self.playing_emoji,
+                    self.calculate_expiration(track_info["length"]),
+                )
 
     def handle_stop_playing(self, sender):
         if self.can_update():
