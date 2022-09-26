@@ -94,7 +94,6 @@ class MPRISListener(object):
             "name": self.strip_mpris(player),
             "interface": interface,
         }
-        self.connect_signal(bus_name)
 
         playback_status = interface.Get(
             f"{self.__mpris_interface}Player", self.__playback_status
@@ -102,6 +101,7 @@ class MPRISListener(object):
         if playback_status == "Playing":
             self.playing = True
 
+        self.connect_signal(bus_name)
         return bus_name
 
     def find_players(self):
