@@ -6,6 +6,7 @@ import json
 import logging
 import os
 from calendar import timegm
+from math import ceil
 
 import dbus
 import dbus.mainloop.glib
@@ -62,7 +63,7 @@ class MPRISListener(object):
             "title": str(metadata.get("xesam:title", "")),
             "album": str(metadata.get("xesam:album", "")),
             # convert from microseconds to seconds
-            "length": int(track_length / 1000000 if track_length else 0),
+            "length": int(ceil(track_length / 1000000) if track_length else 0),
         }
 
     @classmethod
@@ -94,6 +95,13 @@ class MPRISListener(object):
             "interface": interface,
         }
         self.connect_signal(bus_name)
+
+        playback_status = interface.Get(
+            f"{self.__mpris_interface}Player", self.__playback_status
+        )
+        if playback_status == "Playing":
+            self.playing = True
+
         return bus_name
 
     def find_players(self):
@@ -201,10 +209,12 @@ class SlackStatus(object):
 
     @classmethod
     def calculate_expiration(cls, length_seconds):
-        expiration_time = datetime.datetime.utcnow() + datetime.timedelta(
-            seconds=length_seconds
-        )
-        return timegm(expiration_time.timetuple())
+        if length_seconds:
+            expiration_time = datetime.datetime.utcnow() + datetime.timedelta(
+                seconds=length_seconds
+            )
+            return expiration_time, timegm(expiration_time.timetuple())
+        return None, 0
 
     def handle_track_update(self, sender, track_info):
         current_status = self.can_update()
@@ -218,11 +228,16 @@ class SlackStatus(object):
             if status_text == current_status["status_text"]:
                 self.logger.warning("Skipping status update, nothing to change")
             else:
-                self.logger.info(f"Setting status: {self.playing_emoji} {status_text}")
+                expiration_time, expiration_epoch = self.calculate_expiration(
+                    track_info["length"]
+                )
+                self.logger.info(
+                    f"Setting status: {self.playing_emoji}, {status_text}, {expiration_time}"
+                )
                 self.write_status(
                     status_text,
                     self.playing_emoji,
-                    self.calculate_expiration(track_info["length"]),
+                    expiration_epoch,
                 )
 
     def handle_stop_playing(self, sender):
