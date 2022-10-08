@@ -11,7 +11,7 @@ Slack status scrobbler. Updates slack status based upon any media player using t
 
 ### Configuration
 
-Create a config file with the following
+Create a config file `~/.config/slobbler.yaml`:
 
 ```yaml
 user_id: U123456 # user id from slack
@@ -21,17 +21,19 @@ playing_emoji: ":notes:" # emoji to use when playing music
 
 ### Running
 
-`./slobbler.py --config config.yaml`
+`./slobbler.py --config ~/.config/slobbler.yaml`
 
 ### systemd
 
 Use systemd to keep it running in the background
 
-edit `~/.config/systemd/user/slobbler.service`
+`~/.config/systemd/user/slobbler.service`
 ```
 [Unit]
 Description=Slack status scrobbler
 After=network.target
+After=dbus.socket
+Requires=dbus.socket
 
 [Service]
 ExecStart=slobbler.py --config ~/.config/slobbler.yaml

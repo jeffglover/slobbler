@@ -94,6 +94,7 @@ class MPRISListener(object):
         self.interfaces[bus_name] = {
             "name": friendly_player_name,
             "interface": interface,
+            # TODO: track playing status of each player
         }
 
         playback_status = interface.Get(
@@ -164,6 +165,7 @@ class MPRISListener(object):
                     interface_name, self.__playback_status
                 ),
             )
+            # TODO: track playing status of each player
             playing = playback_status == "Playing"
 
             if playing:
@@ -227,6 +229,7 @@ class SlackStatus(object):
                 if len(status_text) > self.__max_status_size
                 else status_text
             )
+            # TODO remove non-ascii characters for comparison, maybe normalize
             if status_text == current_status["status_text"]:
                 self.logger.warning("Skipping status update, nothing to change")
             else:
