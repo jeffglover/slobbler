@@ -7,6 +7,7 @@ import logging
 import os
 from calendar import timegm
 from math import ceil
+from dataclasses import dataclass
 
 import dbus
 import dbus.mainloop.glib
@@ -15,27 +16,97 @@ from dbus.exceptions import DBusException
 from gi.repository import GLib
 from yaml import safe_load as load
 
+MPRIS_INTERFACE = "org.mpris.MediaPlayer2."
+DBUS_INTERFACE = "org.freedesktop.DBus.Properties"
+MPRIS_PATH = "/org/mpris/MediaPlayer2"
+PLAYBACK_STATUS = "PlaybackStatus"
+METADATA = "Metadata"
+
 logging.basicConfig(level=logging.INFO)
 
 
-class MPRISListener(object):
-    __playback_status = "PlaybackStatus"
-    __metadata = "Metadata"
-    __dbus_interface = "org.freedesktop.DBus.Properties"
-    __mpris_interface = "org.mpris.MediaPlayer2."
-    __mpris_path = "/org/mpris/MediaPlayer2"
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        help="YAML configuration file",
+        required=False,
+        default="config.yaml",
+    )
+    args = parser.parse_args()
 
+    slack = SlackStatus(os.path.expanduser(args.config))
+    listener = MPRISListener(slack.handle_track_update, slack.handle_stop_playing)
+    listener.run_loop()
+
+
+@dataclass
+class Player:
+    full_name: str
+    name: str = None
+    interface: dbus.Interface = None
+    playing: bool = None
+
+    @classmethod
+    def strip_mpris(cls, player_name):
+        # human friendly name
+        return player_name.replace(MPRIS_INTERFACE, "")
+
+
+class PlayerManager(object):
+    def __init__(self, bus):
+        self.bus = bus
+        self.players = {}
+
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def pop(self, bus_id):
+        return self.players.pop(bus_id, None)
+
+    def __getitem__(self, bus_id):
+        return self.players[bus_id]
+
+    def _get_interface(self, service):
+        player = self.bus.get_object(service, MPRIS_PATH)
+        return player.bus_name, dbus.Interface(player, DBUS_INTERFACE)
+
+    # def get_playback_status(self, bus_id):
+    #     self.players[bus_id].interface.Get(f"{MPRIS_INTERFACE}Player", PLAYBACK_STATUS)
+
+    def metadata_update(self, bus_id):
+        return self.players[bus_id].interface.Get(
+            f"{MPRIS_INTERFACE}Player", PLAYBACK_STATUS
+        )
+
+    def update_player(self, player_name):
+        friendly_player_name = Player.strip_mpris(player_name)
+        bus_name, interface = self._get_interface(player_name)
+
+        playback_status = interface.Get(f"{MPRIS_INTERFACE}Player", PLAYBACK_STATUS)
+        playing = playback_status == "Playing"
+
+        self.players[bus_name] = Player(
+            player_name, friendly_player_name, interface, playing
+        )
+
+        self.logger.info(
+            f"[{friendly_player_name}{bus_name}] Connected, {playback_status}"
+        )
+        return bus_name
+
+
+class MPRISListener(object):
     def __init__(self, track_update_fn, stopped_playing_fn):
         self.track_update_fn = track_update_fn
         self.stopped_playing_fn = stopped_playing_fn
         self.accepted_message_types = [self.__playback_status, self.__metadata]
         self.playing = False
-        self.interfaces = {}
         self.logger = logging.getLogger(self.__class__.__name__)
 
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SessionBus()
-        self.build_interfaces()
+        self.player_manager = PlayerManager(self.bus)
+        self.add_existing_players()
 
         self.session_bus = self.bus.get_object(
             "org.freedesktop.DBus", "/org/freedesktop/DBus"
@@ -45,8 +116,6 @@ class MPRISListener(object):
         self.session_bus.connect_to_signal(
             "NameOwnerChanged", self.handle_player_connection
         )
-
-        self.run_loop()
 
     def run_loop(self):
         try:
@@ -66,11 +135,6 @@ class MPRISListener(object):
             "length": int(ceil(track_length / 1000000) if track_length else 0),
         }
 
-    @classmethod
-    def strip_mpris(cls, player_name):
-        # human friendly name
-        return player_name.replace(cls.__mpris_interface, "")
-
     def track_updated(self, sender, metadata):
         self.playing = True
         track_info = self.extract_track_info(metadata)
@@ -84,31 +148,6 @@ class MPRISListener(object):
             self.logger.info(f"[{sender}] stopped_playing")
             self.stopped_playing_fn(sender)
 
-    def get_interface(self, service):
-        player = self.bus.get_object(service, self.__mpris_path)
-        return player.bus_name, dbus.Interface(player, self.__dbus_interface)
-
-    def update_interface(self, player):
-        friendly_player_name = self.strip_mpris(player)
-        bus_name, interface = self.get_interface(player)
-        self.interfaces[bus_name] = {
-            "name": friendly_player_name,
-            "interface": interface,
-            # TODO: track playing status of each player
-        }
-
-        playback_status = interface.Get(
-            f"{self.__mpris_interface}Player", self.__playback_status
-        )
-        if playback_status == "Playing":
-            self.playing = True
-
-        self.connect_signal(bus_name)
-        self.logger.info(
-            f"[{friendly_player_name}{bus_name}] Connected, {playback_status}"
-        )
-        return bus_name
-
     def find_players(self):
         return (
             player
@@ -116,34 +155,33 @@ class MPRISListener(object):
             if player.startswith(self.__mpris_interface)
         )
 
-    def build_interfaces(self):
+    def add_existing_players(self):
         for player in self.find_players():
-            self.update_interface(player)
+            self.connect_signal(self.player_manager.update_player(player))
 
     def connect_signal(self, bus_name):
-        player = self.interfaces[bus_name]
-        player["interface"].connect_to_signal(
+        self.player_manager[bus_name].interface.connect_to_signal(
             "PropertiesChanged",
             self.handle_properties_changed,
-            dbus_interface=self.__dbus_interface,
+            dbus_interface=DBUS_INTERFACE,
             sender_keyword="sender",
         )
 
     def handle_player_connection(self, player, old_bus_id, new_bus_id):
-        if player.startswith(self.__mpris_interface):
-            player_name = self.strip_mpris(player)
+        if player.startswith(MPRIS_INTERFACE):
+            player_name = Player.strip_mpris(player)
 
             if old_bus_id and not new_bus_id:
                 self.logger.info(f"[{player_name}{old_bus_id}] Player exited")
 
-                if self.interfaces.pop(old_bus_id, None):
+                if self.player_manager.pop(old_bus_id):
                     self.stopped_playing(player_name)
                 else:
                     self.logger.warning("Player not found: ", player, old_bus_id)
 
             elif not old_bus_id and new_bus_id:
                 self.logger.info(f"[{player_name}{new_bus_id}] Player started")
-                self.update_interface(player)
+                self.connect_signal(self.player_manager.update_player(player))
 
     def handle_properties_changed(
         self, interface_name, message, *args, sender=None, **kwargs
@@ -158,15 +196,10 @@ class MPRISListener(object):
         metadata = None
 
         try:
-            playback_status = message.get(
-                self.__playback_status,
-                # on Metadata updates, query the interface to get the PlaybackStatus
-                self.interfaces[sender]["interface"].Get(
-                    interface_name, self.__playback_status
-                ),
-            )
-            # TODO: track playing status of each player
+            # on Metadata updates, query the interface to get the PlaybackStatus
+            playback_status = message.get(PLAYBACK_STATUS)
             playing = playback_status == "Playing"
+            # self.player_manager
 
             if playing:
                 # if something is playing, fetch the metadata
@@ -302,14 +335,4 @@ class SlackStatus(object):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        help="YAML configuration file",
-        required=False,
-        default="config.yaml",
-    )
-    args = parser.parse_args()
-
-    slack = SlackStatus(os.path.expanduser(args.config))
-    listener = MPRISListener(slack.handle_track_update, slack.handle_stop_playing)
+    main()
