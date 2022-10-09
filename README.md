@@ -46,14 +46,20 @@ WantedBy=default.target
 
 `systemctl --user enable --now slobbler.service`
 
+# Dependencies
+
+Assumptions are made that a Linux system with a modern Desktop Environment will have DBus based dependencies and requests. TODO covers better dependency management as a Python package.
+
 # TODOs
 
-- Make this a Python package
-- Better and configurable filtering
+- [ ] Make this a Python package
+- [ ] Status icon based upon Player with fallback generic, e.g., if spotify use :spotify: emoji
+- [ ] Fallback icon chosen from a random list of playing icons
+- [ ] Better and configurable filtering
     * Track/Artist name
     * Player name
     * If it's a browser, can I tell what website it's on?
-- Better detection of playing players after more than one starts playing (toggle play/pause to fix it isn't a big deal) 
+- [x] Better detection of playing players after more than one starts playing (toggle play/pause to fix it isn't a big deal) 
 
 # Useful references
 
