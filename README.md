@@ -16,7 +16,9 @@ Create a config file `~/.config/slobbler.yaml`:
 ```yaml
 user_id: U123456 # user id from slack
 user_oauth_token: xoxp-token # oauth token from your slack app configuration
-playing_emoji: ":notes:" # emoji to use when playing music
+playing_emoji:
+  spotify: ":spotify:" # player specific is optional
+  fallback: [":notes:", ":catjam:", ":headphones:"] # must be at lest one
 ```
 
 ### Running
@@ -28,6 +30,7 @@ playing_emoji: ":notes:" # emoji to use when playing music
 Use systemd to keep it running in the background
 
 `~/.config/systemd/user/slobbler.service`
+
 ```
 [Unit]
 Description=Slack status scrobbler
@@ -36,7 +39,7 @@ After=dbus.socket
 Requires=dbus.socket
 
 [Service]
-ExecStart=slobbler.py --config ~/.config/slobbler.yaml
+ExecStart=<path to project>/slobbler.py --config ~/.config/slobbler.yaml
 Restart=on-failure
 RestartSec=5
 
@@ -53,13 +56,13 @@ Assumptions are made that a Linux system with a modern Desktop Environment will 
 # TODOs
 
 - [ ] Make this a Python package
-- [ ] Status icon based upon Player with fallback generic, e.g., if spotify use :spotify: emoji
-- [ ] Fallback icon chosen from a random list of playing icons
+- [x] Status icon based upon Player with fallback generic, e.g., if spotify use :spotify: emoji
+- [x] Fallback icon chosen from a random list of playing icons
 - [ ] Better and configurable filtering
-    * Track/Artist name
-    * Player name
-    * If it's a browser, can I tell what website it's on?
-- [x] Better detection of playing players after more than one starts playing (toggle play/pause to fix it isn't a big deal) 
+  - Track/Artist name
+  - Player name
+  - If it's a browser, can I tell what website it's on?
+- [x] Better detection of playing players after more than one starts playing (toggle play/pause to fix it isn't a big deal)
 
 # Useful references
 

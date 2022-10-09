@@ -3,8 +3,9 @@ import json
 import logging
 import os
 from calendar import timegm
-import requests
+from random import choice, seed
 
+import requests
 from yaml import safe_load as load
 
 
@@ -27,15 +28,30 @@ class SlackStatus(object):
         self.token = config["user_oauth_token"]
         self.user_id = config["user_id"]
         self.playing_emoji = config["playing_emoji"]
+        self.fallback_emojis = self.playing_emoji["fallback"]  # must have at least one
 
+        self.valid_playing_emojis = [""]  # empty is valid
+        self.valid_playing_emojis.extend(
+            self.fallback_emojis
+        )  # add all the fallback emojis
+
+        # add player specific emojis
+        self.valid_playing_emojis.extend(
+            [
+                emoji
+                for player, emoji in self.playing_emoji.items()
+                if player != "fallback"
+            ]
+        )
         self.headers = {"Authorization": f"Bearer {self.token}"}
+        seed()
 
-    @classmethod
-    def parse_status(cls, profile):
+    @staticmethod
+    def parse_status(profile):
         return {k: profile[k] for k in profile.keys() & {"status_text", "status_emoji"}}
 
-    @classmethod
-    def calculate_expiration(cls, length_seconds):
+    @staticmethod
+    def calculate_expiration(length_seconds):
         if length_seconds:
             expiration_time = datetime.datetime.utcnow() + datetime.timedelta(
                 seconds=length_seconds
@@ -43,7 +59,7 @@ class SlackStatus(object):
             return expiration_time, timegm(expiration_time.timetuple())
         return None, 0
 
-    def handle_track_update(self, sender, track_info):
+    def handle_track_update(self, player_name, track_info):
         current_status = self.can_update()
         if current_status and track_info["artist"] and track_info["title"]:
             status_text = self.__track_message_fmt.format(**track_info)
@@ -60,12 +76,18 @@ class SlackStatus(object):
                 expiration_time, expiration_epoch = self.calculate_expiration(
                     track_info["length"]
                 )
+                status_emoji = self.playing_emoji.get(
+                    player_name,  # try player name specific emoji
+                    choice(
+                        self.fallback_emojis
+                    ),  # fallback to a random choice of fallback emojis
+                )
                 self.logger.info(
-                    f"Setting status: {self.playing_emoji}, {status_text}, {expiration_time}"
+                    f"Setting status: {status_emoji}, {status_text}, {expiration_time}"
                 )
                 self.write_status(
                     status_text,
-                    self.playing_emoji,
+                    status_emoji,
                     expiration_epoch,
                 )
 
@@ -79,7 +101,7 @@ class SlackStatus(object):
         current_status = self.read_status()
         current_emoji = current_status["status_emoji"]
 
-        if current_emoji in [self.playing_emoji, ""]:
+        if current_emoji in self.valid_playing_emojis:
             return current_status
 
         self.logger.info(f"Cannot update because emoji is set: {current_emoji}")
