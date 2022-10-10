@@ -143,8 +143,8 @@ class MPRISListener(object):
     def run_loop(self):
         loop = GLib.MainLoop()
 
-        def signal_handler(*args):
-            self.logger.info("Shutting down...")
+        def signal_handler(signum, _):
+            self.logger.info(f"{signal.strsignal(signum)}: Shutting down...")
             loop.quit()
             self.stopped_playing(self.playing_player.player, exiting=True)
 
