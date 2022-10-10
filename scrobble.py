@@ -29,19 +29,15 @@ class SlackStatus(object):
         self.user_id = config["user_id"]
         self.playing_emoji = config["playing_emoji"]
         self.fallback_emojis = self.playing_emoji["fallback"]  # must have at least one
-
-        self.valid_playing_emojis = [""]  # empty is valid
-        self.valid_playing_emojis.extend(
-            self.fallback_emojis
-        )  # add all the fallback emojis
+        self.valid_playing_emojis = ["", *self.fallback_emojis]  # empty is valid
 
         # add player specific emojis
         self.valid_playing_emojis.extend(
-            [
+            (
                 emoji
                 for player, emoji in self.playing_emoji.items()
                 if player != "fallback"
-            ]
+            )
         )
         self.headers = {"Authorization": f"Bearer {self.token}"}
         seed()

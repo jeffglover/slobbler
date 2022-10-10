@@ -1,4 +1,5 @@
 import logging
+import signal
 from collections import OrderedDict, namedtuple
 from math import ceil
 
@@ -114,11 +115,12 @@ class PlayerManager(object):
 
 class MPRISListener(object):
     def __init__(self, track_update_fn, stopped_playing_fn):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.track_update_fn = track_update_fn
         self.stopped_playing_fn = stopped_playing_fn
         self.accepted_message_types = [PLAYBACK_STATUS, METADATA]
         self._playing_player = PlayingPlayer(None, None)
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.exit_signals = [signal.SIGTERM, signal.SIGINT]
 
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SessionBus()
@@ -139,12 +141,17 @@ class MPRISListener(object):
         )
 
     def run_loop(self):
-        try:
-            loop = GLib.MainLoop()
-            loop.run()
-        except KeyboardInterrupt:
+        loop = GLib.MainLoop()
+
+        def signal_handler(*args):
+            self.logger.info("Shutting down...")
             loop.quit()
             self.stopped_playing(self.playing_player.player, exiting=True)
+
+        for exit_signal in self.exit_signals:
+            signal.signal(exit_signal, signal_handler)
+
+        loop.run()
 
     @property
     def playing_player(self):

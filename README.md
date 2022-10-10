@@ -6,10 +6,12 @@ Slack status scrobbler. Updates slack status based upon any media player using t
 
 - Connects to all players, publishes only the playing one
 - Clears status on pause or player exit
+- Choose emoji based upon player names
+- For fallback players, can randomly from a list
 - Only updates Slack status if no status or already playing is set. Won't override an existing status. Detection based upon the status emoji
 - Filters when track is missing artist info, likely a video on a webpage
 
-### Configuration
+## Configuration
 
 Create a config file `~/.config/slobbler.yaml`:
 
@@ -18,14 +20,14 @@ user_id: U123456 # user id from slack
 user_oauth_token: xoxp-token # oauth token from your slack app configuration
 playing_emoji:
   spotify: ":spotify:" # player specific is optional
-  fallback: [":notes:", ":catjam:", ":headphones:"] # must be at lest one
+  fallback: [":notes:", ":catjam:", ":headphones:"] # must have at lest one
 ```
 
-### Running
+## Running
 
 `./slobbler.py --config ~/.config/slobbler.yaml`
 
-### systemd
+## systemd
 
 Use systemd to keep it running in the background
 
@@ -49,11 +51,11 @@ WantedBy=default.target
 
 `systemctl --user enable --now slobbler.service`
 
-# Dependencies
+## Dependencies
 
 Assumptions are made that a Linux system with a modern Desktop Environment will have DBus based dependencies and requests. TODO covers better dependency management as a Python package.
 
-# TODOs
+## TODOs
 
 - [ ] Make this a Python package
 - [x] Status icon based upon Player with fallback generic, e.g., if spotify use :spotify: emoji
@@ -64,7 +66,7 @@ Assumptions are made that a Linux system with a modern Desktop Environment will 
   - If it's a browser, can I tell what website it's on?
 - [x] Better detection of playing players after more than one starts playing (toggle play/pause to fix it isn't a big deal)
 
-# Useful references
+## Useful references
 
 - [MPRIS Slack Integration](https://github.com/curtisgibby/mpris-slack-python)
   Good starting place for me, helped with figuring out how to work with DBus/MPRIS. This must be run after a player is playing. Won't handle players exiting or starting.
