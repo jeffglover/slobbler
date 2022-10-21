@@ -1,24 +1,229 @@
 import logging
 import signal
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
+from dataclasses import dataclass
 from math import ceil
+from pprint import pformat
+from typing import NamedTuple
 
 import dbus
 import dbus.mainloop.glib
 from dbus.exceptions import DBusException
 from gi.repository import GLib
 
-MPRIS_INTERFACE = "org.mpris.MediaPlayer2."
-DBUS_INTERFACE = "org.freedesktop.DBus.Properties"
-MPRIS_PATH = "/org/mpris/MediaPlayer2"
-PLAYBACK_STATUS = "PlaybackStatus"
-METADATA = "Metadata"
+from .constants import (
+    DBUS_ERROR_UNKNOWN_METHOD,
+    DBUS_INTERFACE,
+    METADATA,
+    MPRIS_INTERFACE,
+    MPRIS_PARTIAL_INTERFACE,
+    MPRIS_PATH,
+    PLAYBACK_STATUS,
+)
 
-PlayingPlayer = namedtuple("PlayingPlayer", ["bus_id", "player"])
+
+@dataclass
+class TrackInfo:
+    artist: str
+    title: str
+    album: str
+    length: int
+
+    @classmethod
+    def from_mpris(cls, metadata):
+        track_length = metadata.get("mpris:length", 0)
+        return cls(
+            artist=",".join(metadata.get("xesam:artist", [""])),  # array expected
+            title=str(metadata.get("xesam:title", "")),
+            album=str(metadata.get("xesam:album", "")),
+            # convert from microseconds to seconds
+            length=int(ceil(track_length / 1000000) if track_length else 0),
+        )
+
+    def to_dict(self):
+        return {
+            "artist": self.artist,
+            "title": self.title,
+            "album": self.album,
+            "length": self.length,
+        }
+
+    def __str__(self):
+        return f"artist='{self.artist}' title='{self.title}' album='{self.album}' length={self.length}s"
 
 
-class Player(object):
+class MPRISListener:
+    def __init__(self, track_update_fn, stopped_playing_fn):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self.track_update_fn = track_update_fn
+        self.stopped_playing_fn = stopped_playing_fn
+        self.accepted_message_types = (PLAYBACK_STATUS, METADATA)
+        self._playing_player = PlayingPlayer(None, None)
+        self.exit_signals = (signal.SIGTERM, signal.SIGINT)
+
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SessionBus()
+        self.player_manager = PlayerManager(self.bus)
+        self.add_existing_players()
+        self.playing_player = self.player_manager.find_first_playing_player()
+
+        # on startup send an update for playing player
+        self.send_new_player_update()
+
+        self.session_bus = self.bus.get_object(
+            "org.freedesktop.DBus", "/org/freedesktop/DBus"
+        )
+
+        # listen to new and exiting players
+        self.session_bus.connect_to_signal(
+            "NameOwnerChanged", self.handle_player_connection
+        )
+
+    def run_loop(self):
+        loop = GLib.MainLoop()
+
+        def signal_handler(signum, _):
+            self.logger.info(f"{signal.strsignal(signum)}: Shutting down...")
+            loop.quit()
+            self.stopped_playing(self.playing_player.player, exiting=True)
+
+        for exit_signal in self.exit_signals:
+            signal.signal(exit_signal, signal_handler)
+
+        loop.run()
+
+    @property
+    def playing_player(self):
+        return self._playing_player
+
+    @playing_player.setter
+    def playing_player(self, playing_player):
+        self._playing_player = playing_player
+        if playing_player.bus_id:
+            self.logger.info(
+                f"[{repr(playing_player.player)}] is now active player of {len(self.player_manager)}"
+            )
+        else:
+            self.logger.info(f"No active players of {len(self.player_manager)}")
+
+    def send_new_player_update(self):
+        if self.playing_player.bus_id:
+            self.track_updated(
+                self.playing_player.player, self.playing_player.player.query_metadata()
+            )
+
+    def track_updated(self, player, metadata):
+        if self.playing_player.bus_id != player.bus_id:
+            # update playing player on track updates, but only if it changes
+            self.playing_player = PlayingPlayer(player.bus_id, player)
+            self.player_manager.move_to_start(player.bus_id)
+
+        track_info = TrackInfo.from_mpris(metadata)
+        self.logger.info(f"[{player}] now playing: {track_info}")
+        self.track_update_fn(player.name, track_info)
+
+    def stopped_playing(self, player, exiting=False):
+        player_bus_id = (
+            player.bus_id if player else None
+        )  # sometimes player can be None
+        matches_playing_player = self.playing_player.bus_id == player_bus_id
+        self.logger.info(
+            f"[{repr(player)}] stopped playing. matches playing player: {matches_playing_player}"
+        )
+
+        # avoid multiple stop callbacks
+        if player and matches_playing_player:
+            self.stopped_playing_fn(player.name)
+
+        # on exit, do not try to find a new playing player
+        if not exiting:
+            # if the stopped player matches the playing player find a new playing player
+            if matches_playing_player:
+                self.playing_player = self.player_manager.find_first_playing_player()
+                self.send_new_player_update()
+
+    def find_players(self):
+        return (
+            player_name
+            for player_name in self.bus.list_names()
+            if player_name.startswith(MPRIS_PARTIAL_INTERFACE)
+        )
+
+    def add_existing_players(self):
+        for player_name in self.find_players():
+            self.connect_signal(self.player_manager.update_player(player_name))
+
+    def connect_signal(self, player):
+        player.interface.connect_to_signal(
+            "PropertiesChanged",
+            self.handle_properties_changed,
+            dbus_interface=DBUS_INTERFACE,
+            sender_keyword="sender",
+        )
+
+    def handle_player_connection(self, player_name, old_bus_id, new_bus_id):
+        if player_name.startswith(MPRIS_PARTIAL_INTERFACE):
+            self.logger.debug(
+                f"handle_player_connection() {player_name=} {old_bus_id=} {new_bus_id=}"
+            )
+            if old_bus_id and not new_bus_id:
+                old_player = self.player_manager.pop(old_bus_id)
+                if old_player:
+                    self.stopped_playing(old_player)
+                    self.logger.info(f"[{repr(old_player)}] Player exited")
+                else:
+                    self.logger.warning(
+                        "Exiting player not found: ", player_name, old_bus_id
+                    )
+
+            elif not old_bus_id and new_bus_id:
+                new_player = self.player_manager.update_player(player_name)
+                self.logger.info(f"[{repr(new_player)}] Player started")
+                self.connect_signal(new_player)
+
+    def handle_properties_changed(
+        self, interface_name, message, *args, sender, **kwargs
+    ):
+        if not any(
+            message_type in message for message_type in self.accepted_message_types
+        ):
+            # some players send noise around their capabilities, ignore that
+            return
+
+        player = self.player_manager[sender]
+        metadata = None
+
+        self.logger.debug(
+            f"handle_properties_changed()[{repr(player)}] message: {pformat(dict(message), indent=2)}"
+        )
+
+        try:
+            # on Metadata updates, query the interface to get the PlaybackStatus
+            player.playback_status = message.get(
+                PLAYBACK_STATUS, player.query_playback_status()
+            )
+
+            if player.playing:
+                # if something is playing, fetch the metadata
+                metadata = message.get(
+                    METADATA,
+                    # on PlaybackStatus, query the interface for Metadata
+                    player.query_metadata(),
+                )
+        except DBusException as err:
+            self.logger.error(
+                f"Failed to query player interface. {repr(player)} might have shutdown: {err}"
+            )
+
+        if player.playing and metadata:
+            self.track_updated(player, metadata)
+        else:
+            self.stopped_playing(player)
+
+
+class Player:
     def __init__(self, full_name, bus):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.full_name = full_name
         self.bus = bus
         self._playback_status = None
@@ -31,7 +236,7 @@ class Player(object):
     @staticmethod
     def strip_mpris(player_name):
         # human friendly name
-        return player_name.replace(MPRIS_INTERFACE, "")
+        return player_name.replace(MPRIS_PARTIAL_INTERFACE, "")
 
     @property
     def playback_status(self):
@@ -47,10 +252,23 @@ class Player(object):
         return self._playing
 
     def query_playback_status(self):
-        return self.interface.Get(f"{MPRIS_INTERFACE}Player", PLAYBACK_STATUS)
+        try:
+            return self.interface.Get(MPRIS_INTERFACE, PLAYBACK_STATUS)
+        except DBusException as err:
+            # some players don't have PlaybackStatus on startup
+            if err.get_dbus_name() == DBUS_ERROR_UNKNOWN_METHOD:
+                self.logger.error(f"[{repr(self)}]: Unable to query {PLAYBACK_STATUS}")
+                return "Stopped"
+            raise err
 
     def query_metadata(self):
-        return self.interface.Get(f"{MPRIS_INTERFACE}Player", METADATA)
+        try:
+            return self.interface.Get(MPRIS_INTERFACE, METADATA)
+        except DBusException as err:
+            if err.get_dbus_name() == DBUS_ERROR_UNKNOWN_METHOD:
+                self.logger.error(f"[{repr(self)}]: Unable to query {METADATA}")
+                return {}
+            raise err
 
     def _get_interface(self, service):
         player = self.bus.get_object(service, MPRIS_PATH)
@@ -63,7 +281,12 @@ class Player(object):
         return f"{self.name}{self.bus_id}"
 
 
-class PlayerManager(object):
+class PlayingPlayer(NamedTuple):
+    bus_id: str
+    player: Player
+
+
+class PlayerManager:
     def __init__(self, bus):
         self.bus = bus
         self.players = OrderedDict()
@@ -111,176 +334,3 @@ class PlayerManager(object):
         )
 
         return player
-
-
-class MPRISListener(object):
-    def __init__(self, track_update_fn, stopped_playing_fn):
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.track_update_fn = track_update_fn
-        self.stopped_playing_fn = stopped_playing_fn
-        self.accepted_message_types = [PLAYBACK_STATUS, METADATA]
-        self._playing_player = PlayingPlayer(None, None)
-        self.exit_signals = [signal.SIGTERM, signal.SIGINT]
-
-        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        self.bus = dbus.SessionBus()
-        self.player_manager = PlayerManager(self.bus)
-        self.add_existing_players()
-        self.playing_player = self.player_manager.find_first_playing_player()
-
-        # on startup send an update for playing player
-        self.send_new_player_update()
-
-        self.session_bus = self.bus.get_object(
-            "org.freedesktop.DBus", "/org/freedesktop/DBus"
-        )
-
-        # listen to new and exiting players
-        self.session_bus.connect_to_signal(
-            "NameOwnerChanged", self.handle_player_connection
-        )
-
-    def run_loop(self):
-        loop = GLib.MainLoop()
-
-        def signal_handler(signum, _):
-            self.logger.info(f"{signal.strsignal(signum)}: Shutting down...")
-            loop.quit()
-            self.stopped_playing(self.playing_player.player, exiting=True)
-
-        for exit_signal in self.exit_signals:
-            signal.signal(exit_signal, signal_handler)
-
-        loop.run()
-
-    @property
-    def playing_player(self):
-        return self._playing_player
-
-    @playing_player.setter
-    def playing_player(self, playing_player):
-        self._playing_player = playing_player
-        if playing_player.bus_id:
-            self.logger.info(
-                f"[{repr(playing_player.player)}] is now active player of {len(self.player_manager)}"
-            )
-        else:
-            self.logger.info(f"No active players of {len(self.player_manager)}")
-
-    @staticmethod
-    def extract_track_info(metadata):
-        track_length = metadata.get("mpris:length", 0)
-        return {
-            "artist": ",".join(metadata.get("xesam:artist", "")),
-            "title": str(metadata.get("xesam:title", "")),
-            "album": str(metadata.get("xesam:album", "")),
-            # convert from microseconds to seconds
-            "length": int(ceil(track_length / 1000000) if track_length else 0),
-        }
-
-    def send_new_player_update(self):
-        if self.playing_player.bus_id:
-            self.track_updated(
-                self.playing_player.player, self.playing_player.player.query_metadata()
-            )
-
-    def track_updated(self, player, metadata):
-        if self.playing_player.bus_id != player.bus_id:
-            # update playing player on track updates, but only if it changes
-            self.playing_player = PlayingPlayer(player.bus_id, player)
-            self.player_manager.move_to_start(player.bus_id)
-
-        track_info = self.extract_track_info(metadata)
-        self.logger.info(f"[{player}] now playing: {track_info}")
-        self.track_update_fn(player.name, track_info)
-
-    def stopped_playing(self, player, exiting=False):
-        player_bus_id = (
-            player.bus_id if player else None
-        )  # sometimes player can be None
-        matches_playing_player = self.playing_player.bus_id == player_bus_id
-        self.logger.info(
-            f"[{repr(player)}] stopped playing. matches playing player: {matches_playing_player}"
-        )
-
-        # avoid multiple stop callbacks
-        if player and matches_playing_player:
-            self.stopped_playing_fn(player.name)
-
-        # on exit, do not try to find a new playing player
-        if not exiting:
-            # if the stopped player matches the playing player find a new playing player
-            if matches_playing_player:
-                self.playing_player = self.player_manager.find_first_playing_player()
-                self.send_new_player_update()
-
-    def find_players(self):
-        return (
-            player_name
-            for player_name in self.bus.list_names()
-            if player_name.startswith(MPRIS_INTERFACE)
-        )
-
-    def add_existing_players(self):
-        for player_name in self.find_players():
-            self.connect_signal(self.player_manager.update_player(player_name))
-
-    def connect_signal(self, player):
-        player.interface.connect_to_signal(
-            "PropertiesChanged",
-            self.handle_properties_changed,
-            dbus_interface=DBUS_INTERFACE,
-            sender_keyword="sender",
-        )
-
-    def handle_player_connection(self, player_name, old_bus_id, new_bus_id):
-        if player_name.startswith(MPRIS_INTERFACE):
-            if old_bus_id and not new_bus_id:
-                old_player = self.player_manager.pop(old_bus_id)
-                if old_player:
-                    self.stopped_playing(old_player)
-                    self.logger.info(f"[{repr(old_player)}] Player exited")
-                else:
-                    self.logger.warning(
-                        "Exiting player not found: ", player_name, old_bus_id
-                    )
-
-            elif not old_bus_id and new_bus_id:
-                new_player = self.player_manager.update_player(player_name)
-                self.logger.info(f"[{repr(new_player)}] Player started")
-                self.connect_signal(new_player)
-
-    def handle_properties_changed(
-        self, interface_name, message, *args, sender, **kwargs
-    ):
-        if not any(
-            message_type in message for message_type in self.accepted_message_types
-        ):
-            # some players send noise around their capabilities, ignore that
-            return
-
-        player = self.player_manager[sender]
-        metadata = None
-
-        try:
-            # on Metadata updates, query the interface to get the PlaybackStatus
-            player.playback_status = message.get(
-                PLAYBACK_STATUS, player.query_playback_status()
-            )
-
-            if player.playing:
-                # if something is playing, fetch the metadata
-                metadata = message.get(
-                    METADATA,
-                    # on PlaybackStatus, query the interface for Metadata
-                    player.query_metadata(),
-                )
-        except DBusException as err:
-            self.logger.error(
-                f"Failed to query player interface. {repr(player)} might have shutdown: {err}"
-            )
-
-        if player.playing and metadata:
-            self.track_updated(player, metadata)
-        else:
-            self.stopped_playing(player)

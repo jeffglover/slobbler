@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "slobbler"
+version = "0.1.0"
+description = "Slack status scrobbler for Linux. Updates slack status based upon any media player using the MPRIS DBus Protocol"
+authors = ["Jeff Glover <js.glover@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+requests = "*"
+PyYAML = "*"
+dbus-python = "*"
+PyGObject = "*"
+
+[tool.poetry.scripts]
+slobbler = 'slobbler:cli'
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

@@ -1,13 +1,13 @@
 # slobbler
 
-Slack status scrobbler. Updates slack status based upon any media player using the [MPRIS DBus Protocol](https://specifications.freedesktop.org/mpris-spec/latest/)
+Slack status scrobbler for Linux. Updates slack status based upon any media player using the [MPRIS DBus Protocol](https://specifications.freedesktop.org/mpris-spec/latest/)
 
 # Features
 
 - Connects to all players, publishes only the playing one
 - Clears status on pause or player exit
 - Choose emoji based upon player names
-- For fallback players, can randomly from a list
+- For fallback players, randomly chooses from a list
 - Only updates Slack status if no status or already playing is set. Won't override an existing status. Detection based upon the status emoji
 - Filters when track is missing artist info, likely a video on a webpage
 
@@ -25,7 +25,7 @@ playing_emoji:
 
 ## Running
 
-`./slobbler.py --config ~/.config/slobbler.yaml`
+`./slobbler --config ~/.config/slobbler.yaml`
 
 ## systemd
 
@@ -41,7 +41,7 @@ After=dbus.socket
 Requires=dbus.socket
 
 [Service]
-ExecStart=<path to project>/slobbler.py --config ~/.config/slobbler.yaml
+ExecStart=<path to bin>/slobbler --config ~/.config/slobbler.yaml
 Restart=on-failure
 RestartSec=5
 
@@ -57,7 +57,7 @@ Assumptions are made that a Linux system with a modern Desktop Environment will 
 
 ## TODOs
 
-- [ ] Make this a Python package
+- [x] Make this a Python package
 - [x] Status icon based upon Player with fallback generic, e.g., if spotify use :spotify: emoji
 - [x] Fallback icon chosen from a random list of playing icons
 - [ ] Better and configurable filtering
