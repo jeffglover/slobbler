@@ -127,13 +127,11 @@ class SlackStatus:
             }
         )
 
-        if response:
-            return self.parse_status(response)
-        return response
+        return self.parse_status(response)
 
     def write_profile(
         self, **profile: typ.Dict[str, typ.Any]
-    ) -> typ.Dict[str, typ.Any] | typ.Literal[False]:
+    ) -> typ.Dict[str, typ.Any]:
         headers = {
             **self.headers,
             "Content-Type": "application/json; charset=utf-8",
@@ -147,10 +145,6 @@ class SlackStatus:
             params=params,
             data=dumps(status_payload).encode("utf-8"),
         )
-        if response.status_code == 429:
-            self.logger.error(f"Error writing status, rate limited")
-            return False
-
         assert response.ok, f"Bad response from server [{response}]: {response.text}"
 
         json_response = response.json()
