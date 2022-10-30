@@ -164,7 +164,18 @@ class Slobble:
                 )
                 self.slack.write_status(status_text, status_emoji, expiration_epoch)
 
-    def handle_stop_playing(self, sender):
+    def handle_stop_playing(self, player_name):
         if self.slack.can_update():
             self.logger.info("Clearing status")
             self.slack.write_status("", "", 0)
+
+
+class DryRun:
+    def __init__(self, *args, **kwargs):
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def handle_track_update(self, player_name, track_info):
+        self.logger.info(f"handle_track_update({player_name=}, {track_info=})")
+
+    def handle_stop_playing(self, player_name):
+        self.logger.info(f"handle_stop_playing({player_name=})")
