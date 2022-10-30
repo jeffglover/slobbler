@@ -11,6 +11,10 @@ Slack status scrobbler for Linux. Updates slack status based upon any media play
 - Only updates Slack status if no status or already playing is set. Won't override an existing status. Detection based upon the status emoji
 - Filters when track is missing artist info, likely a video on a webpage
 
+## Installation
+
+`$ pip install --user https://github.com/jeffglover/slobbler.git`
+
 ## Configuration
 
 Create a config file `~/.config/slobbler.yaml`:
@@ -25,7 +29,7 @@ playing_emoji:
 
 ## Running
 
-`./slobbler --config ~/.config/slobbler.yaml`
+`$ ./slobbler --config ~/.config/slobbler.yaml`
 
 ## systemd
 
@@ -51,20 +55,12 @@ WantedBy=default.target
 
 `systemctl --user enable --now slobbler.service`
 
-## Dependencies
-
-Assumptions are made that a Linux system with a modern Desktop Environment will have DBus based dependencies and requests. TODO covers better dependency management as a Python package.
-
 ## TODOs
 
-- [x] Make this a Python package
-- [x] Status icon based upon Player with fallback generic, e.g., if spotify use :spotify: emoji
-- [x] Fallback icon chosen from a random list of playing icons
 - [ ] Better and configurable filtering
   - Track/Artist name
   - Player name
   - If it's a browser, can I tell what website it's on?
-- [x] Better detection of playing players after more than one starts playing (toggle play/pause to fix it isn't a big deal)
 
 ## Useful references
 

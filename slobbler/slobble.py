@@ -4,20 +4,22 @@ from datetime import datetime, timedelta
 from json import dumps
 from math import ceil
 from random import choice, seed
-from typing import NamedTuple
+import typing as typ
 
 import requests
 
+from slobbler.listener import TrackInfo
 
-def remove_non_ascii(string):
+
+def remove_non_ascii(string: str) -> str:
     return string.encode("ascii", errors="ignore").decode()
 
 
-def non_ascii_equals(left, right):
+def non_ascii_equals(left: str, right: str) -> bool:
     return remove_non_ascii(left) == remove_non_ascii(right)
 
 
-class SlackStatusResponse(NamedTuple):
+class SlackStatusResponse(typ.NamedTuple):
     text: str
     emoji: str
 
@@ -31,14 +33,14 @@ class SlackStatus:
     expiration_key = "status_expiration"
     profile_keys = {text_key, emoji_key}
 
-    def __init__(self, config):
+    def __init__(self, config: typ.Dict[str, typ.Any]):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.__dict__.update(config)
         self.headers = {"Authorization": f"Bearer {self.token}"}
         seed()
 
     @classmethod
-    def trim_status_text(cls, status_text):
+    def trim_status_text(cls, status_text: str) -> str:
         return (
             (status_text[: cls._max_status_size] + "...")
             if len(status_text) > cls._max_status_size
@@ -46,14 +48,14 @@ class SlackStatus:
         )
 
     @classmethod
-    def ceil_nearest_minute(cls, dt):
+    def ceil_nearest_minute(cls, dt: datetime) -> datetime:
         return (
             datetime.min
             + ceil((dt - datetime.min) / cls._minute_delta) * cls._minute_delta
         )
 
     @classmethod
-    def calculate_expiration(cls, length_seconds):
+    def calculate_expiration(cls, length_seconds: int) -> tuple[datetime | None, int]:
         if length_seconds:
             # sometimes slack message expires too soon, round up to the nearest minute
             expiration_time = cls.ceil_nearest_minute(
@@ -63,10 +65,10 @@ class SlackStatus:
         return None, 0
 
     @classmethod
-    def parse_status(cls, profile):
+    def parse_status(cls, profile: typ.Dict[str, typ.Any]) -> SlackStatusResponse:
         return SlackStatusResponse(profile[cls.text_key], profile[cls.emoji_key])
 
-    def can_update(self):
+    def can_update(self) -> SlackStatusResponse | typ.Literal[False]:
         """don't override any other status, based upon the current emoji"""
         current_status = self.read_status()
 
@@ -76,7 +78,7 @@ class SlackStatus:
         self.logger.info(f"Cannot update because emoji is set: {current_status.emoji}")
         return False
 
-    def pick_emoji(self, player_name):
+    def pick_emoji(self, player_name: str) -> str:
         return self.playing_emoji.get(
             player_name,  # try player name specific emoji
             choice(
@@ -84,10 +86,10 @@ class SlackStatus:
             ),  # fallback to a random choice of fallback emojis
         )
 
-    def read_status(self):
+    def read_status(self) -> SlackStatusResponse:
         return self.parse_status(self.read_profile())
 
-    def read_profile(self):
+    def read_profile(self) -> typ.Dict[str, typ.Any]:
         params = {"user": self.user_id}
         response = requests.get(
             self._slack_api_fmt.format(command="users.profile.get"),
@@ -113,7 +115,9 @@ class SlackStatus:
             return self.parse_status(response)
         return response
 
-    def write_profile(self, **profile):
+    def write_profile(
+        self, **profile: typ.Dict[str, typ.Any]
+    ) -> typ.Dict[str, typ.Any] | typ.Literal[False]:
         headers = {
             **self.headers,
             "Content-Type": "application/json; charset=utf-8",
@@ -146,7 +150,7 @@ class Slobble:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.slack = SlackStatus(config)
 
-    def handle_track_update(self, player_name, track_info):
+    def handle_track_update(self, player_name: str, track_info: TrackInfo):
         current_status = self.slack.can_update()
         if current_status and track_info.artist and track_info.title:
             status_text = self.slack.trim_status_text(
@@ -164,7 +168,7 @@ class Slobble:
                 )
                 self.slack.write_status(status_text, status_emoji, expiration_epoch)
 
-    def handle_stop_playing(self, player_name):
+    def handle_stop_playing(self, player_name: str):
         if self.slack.can_update():
             self.logger.info("Clearing status")
             self.slack.write_status("", "", 0)
@@ -174,8 +178,8 @@ class DryRun:
     def __init__(self, *args, **kwargs):
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def handle_track_update(self, player_name, track_info):
+    def handle_track_update(self, player_name: str, track_info: TrackInfo):
         self.logger.info(f"handle_track_update({player_name=}, {track_info=})")
 
-    def handle_stop_playing(self, player_name):
+    def handle_stop_playing(self, player_name: str):
         self.logger.info(f"handle_stop_playing({player_name=})")

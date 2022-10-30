@@ -4,33 +4,38 @@ import argparse
 import logging
 import os
 from pprint import pformat
+from typing import Any, Dict
 
 from yaml import safe_load as load
 
 from .listener import MPRISListener
-from .slobble import Slobble
+from .slobble import Slobble, DryRun
 
 
 def cli():
-    config = setup()
+    dry_run, config = setup()
 
-    slobble = Slobble(config)
+    if dry_run:
+        slobble = DryRun()
+    else:
+        slobble = Slobble(config)
+
     listener = MPRISListener(slobble.handle_track_update, slobble.handle_stop_playing)
     listener.run_loop()
 
 
-def setup():
+def setup() -> tuple[bool, Dict[str, Any]]:
     args = setup_parser().parse_args()
-    verbose, config = parse_config_file(os.path.expanduser(args.config))
+    dry_run, verbose, config = parse_config_file(os.path.expanduser(args.config))
 
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger("main")
     logger.debug(pformat(config, indent=True))
 
-    return config
+    return dry_run, config
 
 
-def setup_parser():
+def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-c",
@@ -42,7 +47,7 @@ def setup_parser():
     return parser
 
 
-def parse_config_file(config_file):
+def parse_config_file(config_file: str) -> tuple[bool, bool, Dict[str, Any]]:
     assert os.path.isfile(config_file), f"not a file: {config_file}"
     with open(config_file, "r") as fh:
         config = load(fh)
@@ -68,4 +73,4 @@ def parse_config_file(config_file):
             if player != "fallback"
         )
     )
-    return config.get("verbose", False), parsed_config
+    return config.get("dry_run", False), config.get("verbose", False), parsed_config
