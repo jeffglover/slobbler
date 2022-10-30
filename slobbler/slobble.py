@@ -1,12 +1,13 @@
 import logging
+import typing as typ
 from calendar import timegm
 from datetime import datetime, timedelta
 from json import dumps
 from math import ceil
 from random import choice, seed
-import typing as typ
 
 import requests
+from urllib3 import Retry
 
 from slobbler.listener import TrackInfo
 
@@ -37,6 +38,7 @@ class SlackStatus:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.__dict__.update(config)
         self.headers = {"Authorization": f"Bearer {self.token}"}
+        self.session = self.setup_session()
         seed()
 
     @classmethod
@@ -68,6 +70,20 @@ class SlackStatus:
     def parse_status(cls, profile: typ.Dict[str, typ.Any]) -> SlackStatusResponse:
         return SlackStatusResponse(profile[cls.text_key], profile[cls.emoji_key])
 
+    def setup_session(self) -> requests.Session:
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 502, 503, 504],
+            method_whitelist=["HEAD", "GET", "OPTIONS", "POST"],
+        )
+        adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
+        session = requests.Session()
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
+        return session
+
     def can_update(self) -> SlackStatusResponse | typ.Literal[False]:
         """don't override any other status, based upon the current emoji"""
         current_status = self.read_status()
@@ -91,7 +107,7 @@ class SlackStatus:
 
     def read_profile(self) -> typ.Dict[str, typ.Any]:
         params = {"user": self.user_id}
-        response = requests.get(
+        response = self.session.get(
             self._slack_api_fmt.format(command="users.profile.get"),
             headers=self.headers,
             params=params,
@@ -125,13 +141,12 @@ class SlackStatus:
         params = {"user": self.user_id}
         status_payload = {"profile": profile}
 
-        response = requests.post(
+        response = self.session.post(
             self._slack_api_fmt.format(command="users.profile.set"),
             headers=headers,
             params=params,
             data=dumps(status_payload).encode("utf-8"),
         )
-        # TODO: add retry handling
         if response.status_code == 429:
             self.logger.error(f"Error writing status, rate limited")
             return False
