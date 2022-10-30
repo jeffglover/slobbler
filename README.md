@@ -13,7 +13,7 @@ Slack status scrobbler for Linux. Updates slack status based upon any media play
 
 ## Installation
 
-`$ pip install --user https://github.com/jeffglover/slobbler.git`
+`$ pip install --user git+https://github.com/jeffglover/slobbler.git`
 
 ## Configuration
 
