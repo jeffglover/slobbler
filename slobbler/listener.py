@@ -281,9 +281,9 @@ class PlayerManager:
         if player.playing and bus_id == self.playing_player_id:
             self.player_update_fn(player)
 
-    def find_players(self):
+    def find_players(self) -> typ.Generator[str, None, None]:
         return (
-            player_name
+            str(player_name)
             for player_name in self._bus.list_names()
             if player_name.startswith(MPRIS_PARTIAL_INTERFACE)
         )
@@ -292,10 +292,10 @@ class PlayerManager:
         for player_name in self.find_players():
             self.update_player(player_name)
 
-    def move_to_start(self, bus_id):
+    def move_to_start(self, bus_id: str):
         self.players.move_to_end(bus_id, last=False)
 
-    def pop(self, bus_id) -> Player | None:
+    def pop(self, bus_id: str) -> Player | None:
         player = self.players.pop(bus_id, None)
         if player:
             player.close()
