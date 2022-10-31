@@ -1,4 +1,4 @@
-__all__ = ["cli", "MPRISListener", "Slobble"]
+__all__ = ["cli", "MPRISListener", "Slobble", "DryRun"]
 
 import argparse
 import logging
@@ -26,13 +26,17 @@ def cli():
 
 def setup() -> tuple[bool, Dict[str, Any]]:
     args = setup_parser().parse_args()
-    dry_run, verbose, config = parse_config_file(os.path.expanduser(args.config))
+    config = read_config_file(os.path.expanduser(args.config))
+
+    dry_run = config.get("dry_run", False)
+    verbose = config.get("verbose", False)
+    slobbler_config = parse_slobbler_config(config["slobbler"])
 
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger("main")
     logger.debug(pformat(config, indent=True))
 
-    return dry_run, config
+    return dry_run, slobbler_config
 
 
 def setup_parser() -> argparse.ArgumentParser:
@@ -47,11 +51,13 @@ def setup_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_config_file(config_file: str) -> tuple[bool, bool, Dict[str, Any]]:
+def read_config_file(config_file: str) -> Dict[str, Any]:
     assert os.path.isfile(config_file), f"not a file: {config_file}"
     with open(config_file, "r") as fh:
-        config = load(fh)
+        return load(fh)
 
+
+def parse_slobbler_config(config: Dict[str, Any]) -> Dict[str, Any]:
     parsed_config = {
         "token": config["user_oauth_token"],
         "user_id": config["user_id"],
@@ -73,4 +79,4 @@ def parse_config_file(config_file: str) -> tuple[bool, bool, Dict[str, Any]]:
             if player != "fallback"
         )
     )
-    return config.get("dry_run", False), config.get("verbose", False), parsed_config
+    return parsed_config

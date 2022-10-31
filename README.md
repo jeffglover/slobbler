@@ -20,11 +20,12 @@ Slack status scrobbler for Linux. Updates slack status based upon any media play
 Create a config file `~/.config/slobbler.yaml`:
 
 ```yaml
-user_id: U123456 # user id from slack
-user_oauth_token: xoxp-token # oauth token from your slack app configuration
-playing_emoji:
-  spotify: ":spotify:" # player specific is optional
-  fallback: [":notes:", ":catjam:", ":headphones:"] # must have at lest one
+slobbler:
+  user_id: U0123456
+  user_oauth_token: xoxp-token
+  playing_emoji:
+    spotify: ":spotify:"
+    fallback: [":notes:", ":the_horns:", ":headphones:"]
 ```
 
 ## Running

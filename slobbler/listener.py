@@ -21,6 +21,9 @@ from .constants import (
     PLAYBACK_STATUS,
 )
 
+DBUS_DICT_TYPE = typ.MutableMapping[dbus.String, typ.Any]
+ANY_PRIMITIVE = str | int | float | bool
+
 
 @dataclass
 class TrackInfo:
@@ -30,7 +33,7 @@ class TrackInfo:
     length: int
 
     @classmethod
-    def from_mpris(cls, metadata: typ.Dict[str, typ.Any]):
+    def from_mpris(cls, metadata: DBUS_DICT_TYPE):
         track_length = metadata.get("mpris:length", 0)
         return cls(
             artist=",".join(metadata.get("xesam:artist", [""])),  # array expected
@@ -40,7 +43,7 @@ class TrackInfo:
             length=int(ceil(track_length / 1000000) if track_length else 0),
         )
 
-    def to_dict(self):
+    def to_dict(self) -> typ.Dict[str, ANY_PRIMITIVE]:
         return {
             "artist": self.artist,
             "title": self.title,
@@ -80,6 +83,9 @@ class Player:
 
         self._signal_connection = self.connect_signal()
 
+    def __del__(self):
+        self.close()
+
     def close(self):
         self._signal_connection.remove()
 
@@ -106,11 +112,11 @@ class Player:
         return self._track_info
 
     @track_info.setter
-    def track_info(self, metadata):
+    def track_info(self, metadata: DBUS_DICT_TYPE):
         self._track_info = TrackInfo.from_mpris(metadata)
 
     def handle_properties_changed(
-        self, interface_name, message, *args, sender, **kwargs
+        self, interface_name, message: DBUS_DICT_TYPE, *args, **kwargs
     ):
         if not any(
             message_type in message for message_type in self.accepted_message_types
@@ -121,30 +127,28 @@ class Player:
         self.logger.debug(
             f"handle_properties_changed(): [{repr(self)}] message: {type(message)}, {pformat(dict(message), indent=2)}"
         )
-        metadata = message.get(METADATA)
-        playback_status = message.get(PLAYBACK_STATUS)
+        metadata: DBUS_DICT_TYPE | None = message.get(METADATA)
+        playback_status: str | None = message.get(PLAYBACK_STATUS)
 
-        if playback_status:
+        if metadata:
+            self.track_info = metadata
+            if self.playing:
+                self.metadata_update_fn(self.bus_id)
+        elif playback_status:
             self.playback_status = playback_status
             if self.playing:
                 # some players, notably Spotify, don't update metadata from startup -> playing
                 self.track_info = self.query_metadata()
             self.playback_status_changed_fn(self.bus_id)
 
-        if metadata:
-            self.track_info = metadata
-            if self.playing:
-                self.metadata_update_fn(self.bus_id)
-
     def connect_signal(self) -> dbus.connection.SignalMatch:
         return self.interface.connect_to_signal(
             "PropertiesChanged",
             self.handle_properties_changed,
             dbus_interface=DBUS_INTERFACE,
-            sender_keyword="sender",
         )
 
-    def query_playback_status(self) -> dbus.String:
+    def query_playback_status(self) -> dbus.types.String:
         try:
             return self.interface.Get(MPRIS_INTERFACE, PLAYBACK_STATUS)
         except DBusException as err:
@@ -154,7 +158,7 @@ class Player:
                 return "Stopped"
             raise err
 
-    def query_metadata(self):
+    def query_metadata(self) -> DBUS_DICT_TYPE:
         try:
             return self.interface.Get(MPRIS_INTERFACE, METADATA)
         except DBusException as err:
@@ -199,6 +203,9 @@ class PlayerManager:
         self._signal_connection = self._session_bus.connect_to_signal(
             "NameOwnerChanged", self.handle_player_connection
         )
+
+    def __del__(self):
+        self.close()
 
     def close(self):
         self._signal_connection.remove()
@@ -334,8 +341,8 @@ class MPRISListener:
 
         def signal_handler(signum, _):
             self.logger.info(f"{signal.strsignal(signum)}: Shutting down...")
-            self.player_manager.close()
             loop.quit()
+            self.player_manager.close()
             self.stopped_playing_fn("shutdown")
 
         for exit_signal in self.exit_signals:
