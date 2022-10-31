@@ -1,6 +1,6 @@
 # slobbler
 
-Slack status scrobbler for Linux. Updates slack status based upon any media player using the [MPRIS DBus Protocol](https://specifications.freedesktop.org/mpris-spec/latest/)
+Slack status music scrobbler for Linux. Updates slack status based upon any media player using the [MPRIS DBus Protocol](https://specifications.freedesktop.org/mpris-spec/latest/)
 
 # Features
 
@@ -27,6 +27,20 @@ slobbler:
     spotify: ":spotify:"
     fallback: [":notes:", ":the_horns:", ":headphones:"]
 ```
+
+## Configuring Slobbler as a Slack App
+
+1. Add slobbler to [Slack Apps](https://api.slack.com/apps)
+2. Click `Create New App`
+3. Choose `From scratch`
+4. App Name -> `Slobber` and choose your workspace
+5. Click `Create App`
+6. Click `Add features and functionality`
+7. Choose `Permissions`
+8. Click `Add on OAuth Scope` and add `emoji:read`, `users.profile:read`, `users.profile:write`
+9. Copy `User OAuth Token` use that as `user_oauth_token` in slobbler config
+10. Go back to `Basic Information`
+11. Install your app -> `Install to Workspace` and `Allow` permissions
 
 ## Running
 
