@@ -44,7 +44,7 @@ slobbler:
 
 ## Running
 
-`$ ./slobbler --config ~/.config/slobbler.yaml`
+`$ slobbler --config ~/.config/slobbler.yaml`
 
 ## systemd
 
