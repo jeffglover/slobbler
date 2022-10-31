@@ -125,7 +125,7 @@ class Player:
             return
 
         self.logger.debug(
-            f"handle_properties_changed(): [{repr(self)}] message: {type(message)}, {pformat(dict(message), indent=2)}"
+            f"handle_properties_changed(): [{repr(self)}]: {pformat(dict(message), indent=2)}"
         )
         metadata: DBUS_DICT_TYPE | None = message.get(METADATA)
         playback_status: str | None = message.get(PLAYBACK_STATUS)
