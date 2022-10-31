@@ -215,6 +215,7 @@ class PlayerManager:
 
         self.add_existing_players()
         self.playing_player_id = self.find_first_playing_player()
+        self.send_new_player_update()
 
         self._session_bus = self._bus.get_object(
             "org.freedesktop.DBus", "/org/freedesktop/DBus"
@@ -223,8 +224,6 @@ class PlayerManager:
         self._signal_connection = self._session_bus.connect_to_signal(
             "NameOwnerChanged", self.handle_player_connection
         )
-
-        self.send_new_player_update()
 
     def __del__(self):
         self.close()
@@ -241,12 +240,11 @@ class PlayerManager:
             )
             if old_bus_id and not new_bus_id:
                 old_player = self.pop(old_bus_id)
-                if old_player:
-                    if old_player.bus_id == self.playing_player_id:
-                        # if exiting player is playing, handle it
-                        # otherwise, we don't care
-                        self.handle_player_not_playing(old_player)
-                else:
+                if old_player and old_player.bus_id == self.playing_player_id:
+                    # if exiting player is playing, handle it
+                    # otherwise, we don't care
+                    self.handle_player_not_playing(old_player)
+                elif not old_player:
                     self.logger.warning(
                         "Exiting player not found: ", player_name, old_bus_id
                     )
@@ -254,10 +252,37 @@ class PlayerManager:
             elif not old_bus_id and new_bus_id:
                 self.update_player(player_name)
 
+    def playback_status_changed(self, bus_id: str):
+        player = self[bus_id]
+        self.logger.debug(
+            f"[{player}] playback_status_changed() {player.playback_status=}, {self.playing_player_id=}"
+        )
+        if player.playing and bus_id != self.playing_player_id:
+            # new playing player detected
+            self.handle_new_playing_player(bus_id)
+
+        elif not player.playing and bus_id == self.playing_player_id:
+            # playing player has stopped playing
+            self.handle_player_not_playing(player)
+
+    def metadata_update(self, bus_id: str):
+        player = self[bus_id]
+        self.logger.debug(
+            f"[{player}]: metadata_update() {player.playback_status=}, {player.track_info=}"
+        )
+
+        if player.playing and bus_id == self.playing_player_id:
+            self.player_update_callback(player)
+
     def handle_player_not_playing(self, player: Player):
         self.playing_player_id = self.find_first_playing_player()
         if not self.send_new_player_update():
             self.player_stopped_callback(player)
+
+    def handle_new_playing_player(self, bus_id: str):
+        self.playing_player_id = bus_id
+        self.move_to_start(self.playing_player_id)
+        self.send_new_player_update()
 
     def find_first_playing_player(self) -> str:
         bus_id = next(
@@ -281,39 +306,13 @@ class PlayerManager:
 
         if player.playing:
             # in case a player starts up playing
-            self.playing_player_id = player.bus_id
-            self.move_to_start(self.playing_player_id)
-            self.send_new_player_update()
+            self.handle_new_playing_player(player.bus_id)
 
     def send_new_player_update(self) -> bool:
         if self.playing_player_id:
             self.player_update_callback(self[self.playing_player_id])
             return True
         return False
-
-    def playback_status_changed(self, bus_id: str):
-        player = self[bus_id]
-        self.logger.debug(
-            f"[{player}] playback_status_changed() {player.playback_status=}, {self.playing_player_id=}"
-        )
-        if player.playing and bus_id != self.playing_player_id:
-            # new playing player detected
-            self.move_to_start(bus_id)
-            self.playing_player_id = bus_id
-            self.player_update_callback(player)
-
-        elif not player.playing and bus_id == self.playing_player_id:
-            # playing player has stopped playing
-            self.handle_player_not_playing(player)
-
-    def metadata_update(self, bus_id: str):
-        player = self[bus_id]
-        self.logger.debug(
-            f"[{player}]: metadata_update() {player.playback_status=}, {player.track_info=}"
-        )
-
-        if player.playing and bus_id == self.playing_player_id:
-            self.player_update_callback(player)
 
     def find_players(self) -> typ.Generator[str, None, None]:
         return (
