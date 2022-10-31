@@ -266,6 +266,8 @@ class PlayerManager:
         )
         if bus_id:
             self.move_to_start(bus_id)
+        else:
+            self.logger.info(f"No playing players of {len(self)}")
 
         return bus_id
 
@@ -277,7 +279,11 @@ class PlayerManager:
 
         self.logger.info(f"[{repr(player)}] Connected, {player.playback_status}")
 
-        return player
+        if player.playing:
+            # in case a player starts up playing
+            self.playing_player_id = player.bus_id
+            self.move_to_start(self.playing_player_id)
+            self.send_new_player_update()
 
     def send_new_player_update(self) -> bool:
         if self.playing_player_id:
