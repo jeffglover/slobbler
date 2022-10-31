@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "slobbler"
-version = "0.1.0"
+version = "0.2.0"
 description = "Slack status music scrobbler for Linux. Updates slack status based upon any media player using the MPRIS DBus Protocol"
 authors = ["Jeff Glover <js.glover@gmail.com>"]
 license = "MIT"
