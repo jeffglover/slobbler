@@ -60,22 +60,24 @@ class Player:
         self,
         full_name: str,
         bus: dbus.SessionBus,
-        playback_status_changed_fn: typ.Callable[[str], None],
-        metadata_update_fn: typ.Callable[[str], None],
+        playback_status_changed_callback: typ.Callable[[str], None],
+        metadata_update_callback: typ.Callable[[str], None],
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.full_name = full_name
-        self._bus = bus
-
-        self.playback_status_changed_fn = playback_status_changed_fn
-        self.metadata_update_fn = metadata_update_fn
-
+        self._full_name = None
+        self._name = None
         self._playback_status = "Stopped"
         self._playing: bool = False
         self._track_info = None
+        self._track_info_changed = False
         self.accepted_message_types = (PLAYBACK_STATUS, METADATA)
 
-        self.name = self.strip_mpris(self.full_name)
+        self._bus = bus
+        self.full_name = full_name
+
+        self.playback_status_changed_callback = playback_status_changed_callback
+        self.metadata_update_callback = metadata_update_callback
+
         self.bus_id, self.interface = self._get_interface(self.full_name)
         self.playback_status = self.query_playback_status()
         if self.playing:
@@ -93,6 +95,19 @@ class Player:
     def strip_mpris(player_name: str) -> str:
         # human friendly name
         return player_name.replace(MPRIS_PARTIAL_INTERFACE, "")
+
+    @property
+    def full_name(self):
+        return self._full_name
+
+    @full_name.setter
+    def full_name(self, full_name):
+        self._full_name = full_name
+        self._name = self.strip_mpris(self._full_name)
+
+    @property
+    def name(self):
+        return self._name
 
     @property
     def playback_status(self):
@@ -113,7 +128,13 @@ class Player:
 
     @track_info.setter
     def track_info(self, metadata: DBUS_DICT_TYPE):
-        self._track_info = TrackInfo.from_mpris(metadata)
+        new_track_info = TrackInfo.from_mpris(metadata)
+        self._track_info_changed = self._track_info != new_track_info
+        self._track_info = new_track_info
+
+    @property
+    def track_info_changed(self):
+        return self._track_info_changed
 
     def handle_properties_changed(
         self, interface_name, message: DBUS_DICT_TYPE, *args, **kwargs
@@ -132,14 +153,15 @@ class Player:
 
         if metadata:
             self.track_info = metadata
-            if self.playing:
-                self.metadata_update_fn(self.bus_id)
+            if self.playing and self.track_info_changed:
+                self.metadata_update_callback(self.bus_id)
+
         elif playback_status:
             self.playback_status = playback_status
             if self.playing:
                 # some players, notably Spotify, don't update metadata from startup -> playing
                 self.track_info = self.query_metadata()
-            self.playback_status_changed_fn(self.bus_id)
+            self.playback_status_changed_callback(self.bus_id)
 
     def connect_signal(self) -> dbus.connection.SignalMatch:
         return self.interface.connect_to_signal(
@@ -181,28 +203,28 @@ class Player:
 class PlayerManager:
     def __init__(
         self,
-        player_update_fn: typ.Callable[[Player], None],
-        player_stopped_fn: typ.Callable[[Player], None],
+        player_update_callback: typ.Callable[[Player], None],
+        player_stopped_callback: typ.Callable[[Player], None],
     ):
+        self.logger = logging.getLogger(self.__class__.__name__)
         self._bus = dbus.SessionBus()
-        self.player_update_fn = player_update_fn
-        self.player_stopped_fn = player_stopped_fn
+        self.player_update_callback = player_update_callback
+        self.player_stopped_callback = player_stopped_callback
 
         self.players: typ.OrderedDict[str, Player] = OrderedDict()
-        self.logger = logging.getLogger(self.__class__.__name__)
 
         self.add_existing_players()
         self.playing_player_id = self.find_first_playing_player()
-        self.send_new_player_update()
 
         self._session_bus = self._bus.get_object(
             "org.freedesktop.DBus", "/org/freedesktop/DBus"
         )
-
         # listen to new and exiting players
         self._signal_connection = self._session_bus.connect_to_signal(
             "NameOwnerChanged", self.handle_player_connection
         )
+
+        self.send_new_player_update()
 
     def __del__(self):
         self.close()
@@ -234,7 +256,7 @@ class PlayerManager:
     def handle_player_not_playing(self, player: Player):
         self.playing_player_id = self.find_first_playing_player()
         if not self.send_new_player_update():
-            self.player_stopped_fn(player)
+            self.player_stopped_callback(player)
 
     def find_first_playing_player(self) -> str:
         bus_id = next(
@@ -260,7 +282,7 @@ class PlayerManager:
 
     def send_new_player_update(self) -> bool:
         if self.playing_player_id:
-            self.player_update_fn(self[self.playing_player_id])
+            self.player_update_callback(self[self.playing_player_id])
             return True
         return False
 
@@ -273,7 +295,7 @@ class PlayerManager:
             # new playing player detected
             self.move_to_start(bus_id)
             self.playing_player_id = bus_id
-            self.player_update_fn(player)
+            self.player_update_callback(player)
 
         elif not player.playing and bus_id == self.playing_player_id:
             # playing player has stopped playing
@@ -286,7 +308,7 @@ class PlayerManager:
         )
 
         if player.playing and bus_id == self.playing_player_id:
-            self.player_update_fn(player)
+            self.player_update_callback(player)
 
     def find_players(self) -> typ.Generator[str, None, None]:
         return (
@@ -325,12 +347,12 @@ class PlayerManager:
 class MPRISListener:
     def __init__(
         self,
-        track_update_fn: typ.Callable[[str, TrackInfo], None],
-        stopped_playing_fn: typ.Callable[[str], None],
+        track_update_callback: typ.Callable[[str, TrackInfo], None],
+        stopped_playing_callback: typ.Callable[[str], None],
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.track_update_fn = track_update_fn
-        self.stopped_playing_fn = stopped_playing_fn
+        self.track_update_callback = track_update_callback
+        self.stopped_playing_callback = stopped_playing_callback
         self.exit_signals = (signal.SIGTERM, signal.SIGINT)
 
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
@@ -343,7 +365,7 @@ class MPRISListener:
             self.logger.info(f"{signal.strsignal(signum)}: Shutting down...")
             loop.quit()
             self.player_manager.close()
-            self.stopped_playing_fn("shutdown")
+            self.stopped_playing_callback("shutdown")
 
         for exit_signal in self.exit_signals:
             signal.signal(exit_signal, signal_handler)
@@ -351,7 +373,7 @@ class MPRISListener:
         loop.run()
 
     def track_updated(self, player: Player):
-        self.track_update_fn(player.name, player.track_info)
+        self.track_update_callback(player.name, player.track_info)
 
     def stopped_playing(self, player: Player):
-        self.stopped_playing_fn(player.name)
+        self.stopped_playing_callback(player.name)

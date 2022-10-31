@@ -36,6 +36,9 @@ class SlackStatus:
 
     def __init__(self, config: typ.Dict[str, typ.Any]):
         self.logger = logging.getLogger(self.__class__.__name__)
+        config.setdefault(
+            "set_expiration", False
+        )  # set status expiration time based upon track length if possible
         self.__dict__.update(config)
         self.headers = {"Authorization": f"Bearer {self.token}"}
         self.session = self.setup_session()
@@ -57,16 +60,6 @@ class SlackStatus:
         )
 
     @classmethod
-    def calculate_expiration(cls, length_seconds: int) -> tuple[datetime | None, int]:
-        if length_seconds:
-            # sometimes slack message expires too soon, round up to the nearest minute
-            expiration_time = cls.ceil_nearest_minute(
-                datetime.utcnow() + timedelta(seconds=length_seconds)
-            )
-            return expiration_time, timegm(expiration_time.timetuple())
-        return None, 0
-
-    @classmethod
     def parse_status(cls, profile: typ.Dict[str, typ.Any]) -> SlackStatusResponse:
         return SlackStatusResponse(profile[cls.text_key], profile[cls.emoji_key])
 
@@ -83,6 +76,15 @@ class SlackStatus:
         session.mount("http://", adapter)
 
         return session
+
+    def calculate_expiration(self, length_seconds: int) -> tuple[datetime | None, int]:
+        if self.set_expiration and length_seconds:
+            # sometimes slack the message expires too soon, round up to the nearest minute
+            expiration_time = self.ceil_nearest_minute(
+                datetime.utcnow() + timedelta(seconds=length_seconds)
+            )
+            return expiration_time, timegm(expiration_time.timetuple())
+        return None, 0
 
     def can_update(self) -> SlackStatusResponse | typ.Literal[False]:
         """don't override any other status, based upon the current emoji"""
@@ -160,22 +162,41 @@ class Slobble:
         self.slack = SlackStatus(config)
 
     def handle_track_update(self, player_name: str, track_info: TrackInfo):
-        current_status = self.slack.can_update()
-        if current_status and track_info.artist and track_info.title:
+        status_text = self.build_status_text(track_info)
+
+        if status_text:
+            expiration_time, expiration_epoch = self.slack.calculate_expiration(
+                track_info.length
+            )
+            status_emoji = self.slack.pick_emoji(player_name)
+            self.logger.info(
+                f"Setting status: {status_emoji}, {status_text}, {expiration_time}"
+            )
+            self.slack.write_status(status_text, status_emoji, expiration_epoch)
+
+    def build_status_text(self, track_info: TrackInfo) -> str | typ.Literal[False]:
+        current_status = (
+            self.slack.can_update() if self.passes_track_filter(track_info) else False
+        )
+        if current_status:
             status_text = self.slack.trim_status_text(
                 self._track_message_fmt.format(**track_info.to_dict())
             )
-            if non_ascii_equals(status_text, current_status.text):
-                self.logger.warning("Skipping status update, nothing to change")
-            else:
-                expiration_time, expiration_epoch = self.slack.calculate_expiration(
-                    track_info.length
-                )
-                status_emoji = self.slack.pick_emoji(player_name)
-                self.logger.info(
-                    f"Setting status: {status_emoji}, {status_text}, {expiration_time}"
-                )
-                self.slack.write_status(status_text, status_emoji, expiration_epoch)
+            if not non_ascii_equals(status_text, current_status.text):
+                return status_text
+            self.logger.warning("Skipping status update, nothing to change")
+
+        return False
+
+    def passes_track_filter(self, track_info: TrackInfo) -> bool:
+        missing = (
+            *(("artist",) if not track_info.artist else ()),
+            *(("title",) if not track_info.title else ()),
+        )
+        if missing:
+            self.logger.info(f"Skipping status update, missing: {', '.join(missing)}")
+            return False
+        return True
 
     def handle_stop_playing(self, player_name: str):
         if self.slack.can_update():

@@ -9,7 +9,7 @@ Slack status music scrobbler for Linux. Updates slack status based upon any medi
 - Choose emoji based upon player names
 - For fallback players, randomly chooses from a list
 - Only updates Slack status if no status or already playing is set. Won't override an existing status. Detection based upon the status emoji
-- Filters when track is missing artist info, likely a video on a webpage
+- Filters missing artist info, likely a video on a webpage
 
 ## Installation
 
@@ -26,6 +26,7 @@ slobbler:
   playing_emoji:
     spotify: ":spotify:"
     fallback: [":notes:", ":the_horns:", ":headphones:"]
+  set_expiration: False # Optional (False), set status expiration time based upon track length if possible
 ```
 
 ## Configuring Slobbler as a Slack App
