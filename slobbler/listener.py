@@ -64,12 +64,12 @@ class Player:
         metadata_update_callback: typ.Callable[[str], None],
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self._full_name = None
-        self._name = None
-        self._playback_status = "Stopped"
+        self._full_name: str = ""
+        self._name: str = ""
+        self._playback_status: str = "Stopped"
         self._playing: bool = False
-        self._track_info = None
-        self._track_info_changed = False
+        self._track_info: TrackInfo | None = None
+        self._track_info_changed: bool = False
         self.accepted_message_types = (PLAYBACK_STATUS, METADATA)
 
         self._bus = bus
@@ -97,20 +97,20 @@ class Player:
         return player_name.replace(MPRIS_PARTIAL_INTERFACE, "")
 
     @property
-    def full_name(self):
+    def full_name(self) -> str:
         return self._full_name
 
     @full_name.setter
-    def full_name(self, full_name):
+    def full_name(self, full_name: str):
         self._full_name = full_name
         self._name = self.strip_mpris(self._full_name)
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
 
     @property
-    def playback_status(self):
+    def playback_status(self) -> str:
         return self._playback_status
 
     @playback_status.setter
@@ -123,7 +123,7 @@ class Player:
         return self._playing
 
     @property
-    def track_info(self) -> TrackInfo:
+    def track_info(self) -> TrackInfo | None:
         return self._track_info
 
     @track_info.setter
@@ -133,7 +133,7 @@ class Player:
         self._track_info = new_track_info
 
     @property
-    def track_info_changed(self):
+    def track_info_changed(self) -> bool:
         return self._track_info_changed
 
     def handle_properties_changed(
@@ -242,16 +242,17 @@ class PlayerManager:
             if old_bus_id and not new_bus_id:
                 old_player = self.pop(old_bus_id)
                 if old_player:
-                    self.logger.info(f"[{repr(old_player)}] Player exited")
-                    self.handle_player_not_playing(old_player)
+                    if old_player.bus_id == self.playing_player_id:
+                        # if exiting player is playing, handle it
+                        # otherwise, we don't care
+                        self.handle_player_not_playing(old_player)
                 else:
                     self.logger.warning(
                         "Exiting player not found: ", player_name, old_bus_id
                     )
 
             elif not old_bus_id and new_bus_id:
-                new_player = self.update_player(player_name)
-                self.logger.info(f"[{repr(new_player)}] Player started")
+                self.update_player(player_name)
 
     def handle_player_not_playing(self, player: Player):
         self.playing_player_id = self.find_first_playing_player()
@@ -274,9 +275,7 @@ class PlayerManager:
         )
         self.players[player.bus_id] = player
 
-        self.logger.info(
-            f"[{player.name}{player.bus_id}] Connected, {player.playback_status}"
-        )
+        self.logger.info(f"[{repr(player)}] Connected, {player.playback_status}")
 
         return player
 
@@ -328,14 +327,12 @@ class PlayerManager:
         player = self.players.pop(bus_id, None)
         if player:
             player.close()
+            self.logger.info(f"[{repr(player)}] Disconnected, {player.playback_status}")
 
         return player
 
     def __getitem__(self, bus_id: str):
         return self.players[bus_id]
-
-    def __setitem__(self, player_name: str):
-        self.update_player(player_name)
 
     def __delitem__(self, bus_id: str):
         self.pop(bus_id)
