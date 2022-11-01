@@ -7,9 +7,20 @@ Slack status music scrobbler for Linux. Updates slack status based upon any medi
 - Connects to all players, publishes only the playing one
 - Clears status on pause or player exit
 - Choose emoji based upon player names
-- For fallback players, randomly chooses from a list
+  - For fallback players, randomly chooses from a list
 - Only updates Slack status if no status or already playing is set. Won't override an existing status. Detection based upon the status emoji
-- Filters missing artist info, likely a video on a webpage
+- Configurable required fields (e.g., must have artist and title)
+- Filters, similar format to exceptions, see Advanced config
+- Exceptions to required fields, allow scrobble even when it does not have required fields or filter matches
+  - Choose field and partial text match, along with custom message format and emoji
+    ```yaml
+    exceptions:
+      - field: "title"
+        partial: "Udemy"
+        emoji: ":male-student:"
+        message_format: "Learning: {title}"
+    ```
+    If I'm watching a Udemy course, update status with custom emoji and message
 
 ## Installation
 
@@ -19,14 +30,63 @@ Slack status music scrobbler for Linux. Updates slack status based upon any medi
 
 Create a config file `~/.config/slobbler.yaml`:
 
+### Basic config
+
 ```yaml
-slobbler:
+slack:
   user_id: U0123456
   user_oauth_token: xoxp-token
-  playing_emoji:
+
+slobbler:
+  default_emojis:
+    - ":notes:"
+```
+
+### Advanced config
+
+```yaml
+slack:
+  user_id: U0123456
+  user_oauth_token: xoxp-token
+
+slobbler:
+  # Custom message format, defaults to "{artist} - {title}"
+  message_format: "{artist} - {title}"
+  player_emojis:
+    # exact match emoji to a specific player
     spotify: ":spotify:"
-    fallback: [":notes:", ":the_horns:", ":headphones:"]
-  set_expiration: False # Optional (False), set status expiration time based upon track length if possible
+
+  default_emojis:
+    # random choice of emojis when doesn't match player emoji, must have at least one
+    - ":notes:"
+    - ":the_horns:"
+    - ":headphones:"
+
+  # Defaults to False, set status expiration time based upon track length if possible
+  set_expiration: False
+
+  # Required fields, defaults to ["artist", "title"]
+  required_fields:
+    - "artist"
+    - "title"
+
+  # Optional track metadata filters
+  filters:
+    - field: "artist" # choose field to filter
+      partial: "Nickelback" # contents to filter on
+
+  # Optional exceptions, based on track metadata. Takes precedence over required fields and filters
+  exceptions:
+    - field: "title" # field from TrackInfo: artist, title, album
+      partial: "Udemy" # contents to partial match on
+      emoji: ":male-student:" # optional custom emoji on matched exception
+      message_format: "{title}" # optional custom message format on matched exception
+
+# Optional listener config
+listener:
+  # Partial match to ignore by player name, check logs to see how player names show up
+  # ignore Firefox web based players, where player name is firefox.instanceNNNN
+  ignore: ["firefox.instance"]
 ```
 
 ## Configuring Slobbler as a Slack App
@@ -70,13 +130,6 @@ WantedBy=default.target
 ```
 
 `systemctl --user enable --now slobbler.service`
-
-## TODOs
-
-- [ ] Better and configurable filtering
-  - Track/Artist name
-  - Player name
-  - If it's a browser, can I tell what website it's on?
 
 ## Useful references
 

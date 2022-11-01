@@ -2,7 +2,7 @@ import logging
 import signal
 import typing as typ
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from math import ceil
 from pprint import pformat
 
@@ -51,6 +51,12 @@ class TrackInfo:
             "length": self.length,
         }
 
+    def empty_fields(self) -> typ.Generator[str, None, None]:
+        return (field.name for field in fields(self) if not self[field.name])
+
+    def __getitem__(self, attribute: str):
+        return getattr(self, attribute)
+
     def __str__(self):
         return f"artist='{self.artist}' title='{self.title}' album='{self.album}' length={self.length}s"
 
@@ -71,13 +77,16 @@ class Player:
         self._track_info: TrackInfo | None = None
         self._track_info_changed: bool = False
         self.accepted_message_types = (PLAYBACK_STATUS, METADATA)
+        self.bus_id = None
+        self.interface = None
+        self._signal_connection = None
 
         self._bus = bus
         self.full_name = full_name
-
         self.playback_status_changed_callback = playback_status_changed_callback
         self.metadata_update_callback = metadata_update_callback
 
+    def connect(self):
         self.bus_id, self.interface = self._get_interface(self.full_name)
         self.playback_status = self.query_playback_status()
         if self.playing:
@@ -89,7 +98,8 @@ class Player:
         self.close()
 
     def close(self):
-        self._signal_connection.remove()
+        if self._signal_connection:
+            self._signal_connection.remove()
 
     @staticmethod
     def strip_mpris(player_name: str) -> str:
@@ -117,6 +127,7 @@ class Player:
     def playback_status(self, status: dbus.String):
         self._playback_status = str(status)
         self._playing = status == "Playing"
+        self.logger.info(f"[{self}] playback status changed: {self.playback_status}")
 
     @property
     def playing(self) -> bool:
@@ -131,6 +142,8 @@ class Player:
         new_track_info = TrackInfo.from_mpris(metadata)
         self._track_info_changed = self._track_info != new_track_info
         self._track_info = new_track_info
+        if self.track_info_changed:
+            self.logger.info(f"[{self}] metadata update: {self.track_info}")
 
     @property
     def track_info_changed(self) -> bool:
@@ -171,22 +184,19 @@ class Player:
         )
 
     def query_playback_status(self) -> dbus.types.String:
-        try:
-            return self.interface.Get(MPRIS_INTERFACE, PLAYBACK_STATUS)
-        except DBusException as err:
-            # some players don't have PlaybackStatus on startup
-            if err.get_dbus_name() == DBUS_ERROR_UNKNOWN_METHOD:
-                self.logger.error(f"[{repr(self)}]: Unable to query {PLAYBACK_STATUS}")
-                return "Stopped"
-            raise err
+        return self.query_interface(PLAYBACK_STATUS, "Stopped")
 
     def query_metadata(self) -> DBUS_DICT_TYPE:
+        return self.query_interface(METADATA, {})
+
+    def query_interface(self, query_method: str, default: typ.Any):
         try:
-            return self.interface.Get(MPRIS_INTERFACE, METADATA)
+            return self.interface.Get(MPRIS_INTERFACE, query_method)
         except DBusException as err:
+            # some players don't have some methods on startup
             if err.get_dbus_name() == DBUS_ERROR_UNKNOWN_METHOD:
-                self.logger.error(f"[{repr(self)}]: Unable to query {METADATA}")
-                return {}
+                self.logger.error(f"[{repr(self)}]: Unable to query {query_method}")
+                return default
             raise err
 
     def _get_interface(self, service: str) -> tuple[str, dbus.Interface]:
@@ -203,19 +213,19 @@ class Player:
 class PlayerManager:
     def __init__(
         self,
+        ignore_players: typ.Iterable[str],
         player_update_callback: typ.Callable[[Player], None],
         player_stopped_callback: typ.Callable[[Player], None],
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
         self._bus = dbus.SessionBus()
+        self.ignore_players = tuple(ignore_players)
         self.player_update_callback = player_update_callback
         self.player_stopped_callback = player_stopped_callback
 
         self.players: typ.OrderedDict[str, Player] = OrderedDict()
-
+        self.playing_player_id = None
         self.add_existing_players()
-        self.playing_player_id = self.find_first_playing_player()
-        self.send_new_player_update()
 
         self._session_bus = self._bus.get_object(
             "org.freedesktop.DBus", "/org/freedesktop/DBus"
@@ -255,7 +265,7 @@ class PlayerManager:
     def playback_status_changed(self, bus_id: str):
         player = self[bus_id]
         self.logger.debug(
-            f"[{player}] playback_status_changed() {player.playback_status=}, {self.playing_player_id=}"
+            f"[{player}] playback_status_changed() {player.playback_status=}, {player.bus_id}, {self.playing_player_id=}"
         )
         if player.playing and bus_id != self.playing_player_id:
             # new playing player detected
@@ -300,6 +310,11 @@ class PlayerManager:
         player = Player(
             player_name, self._bus, self.playback_status_changed, self.metadata_update
         )
+        if any(ignore_player in player.name for ignore_player in self.ignore_players):
+            self.logger.info(f"Ignoring player: {player.name}")
+            return
+
+        player.connect()
         self.players[player.bus_id] = player
 
         self.logger.info(f"[{repr(player)}] Connected, {player.playback_status}")
@@ -349,6 +364,7 @@ class PlayerManager:
 class MPRISListener:
     def __init__(
         self,
+        config: typ.Dict[str, typ.Any],
         track_update_callback: typ.Callable[[str, TrackInfo], None],
         stopped_playing_callback: typ.Callable[[str], None],
     ):
@@ -358,7 +374,9 @@ class MPRISListener:
         self.exit_signals = (signal.SIGTERM, signal.SIGINT)
 
         dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
-        self.player_manager = PlayerManager(self.track_updated, self.stopped_playing)
+        self.player_manager = PlayerManager(
+            config.get("ignore", []), self.track_updated, self.stopped_playing
+        )
 
     def run_loop(self):
         loop = GLib.MainLoop()

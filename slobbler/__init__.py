@@ -1,4 +1,4 @@
-__all__ = ["cli", "MPRISListener", "Slobble", "DryRun"]
+__all__ = ["cli", "MPRISListener", "SlackStatus", "SlackAPI", "Slobble", "NoScrobble"]
 
 import argparse
 import logging
@@ -9,34 +9,35 @@ from typing import Any, Dict
 from yaml import safe_load as load
 
 from .listener import MPRISListener
-from .slobble import Slobble, DryRun
+from .slobble import SlackAPI, Slobble, NoScrobble
 
 
 def cli():
-    dry_run, config = setup()
+    no_scrobble, slack_config, slobbler_config, listener_config = setup()
 
-    if dry_run:
-        slobble = DryRun()
+    if no_scrobble:
+        slobble = NoScrobble()
     else:
-        slobble = Slobble(config)
+        slobble = Slobble(SlackAPI(slack_config), slobbler_config)
 
-    listener = MPRISListener(slobble.handle_track_update, slobble.handle_stop_playing)
+    listener = MPRISListener(
+        listener_config, slobble.handle_track_update, slobble.handle_stop_playing
+    )
     listener.run_loop()
 
 
-def setup() -> tuple[bool, Dict[str, Any]]:
+def setup() -> tuple[bool, Dict[str, str], Dict[str, Any], Dict[str, Any]]:
     args = setup_parser().parse_args()
     config = read_config_file(os.path.expanduser(args.config))
 
-    dry_run = config.get("dry_run", False)
+    no_scrobble = config.get("no_scrobble", False)
     verbose = config.get("verbose", False)
-    slobbler_config = parse_slobbler_config(config["slobbler"])
 
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO)
     logger = logging.getLogger("main")
     logger.debug(pformat(config, indent=True))
 
-    return dry_run, slobbler_config
+    return no_scrobble, config["slack"], config["slobbler"], config.get("listener", {})
 
 
 def setup_parser() -> argparse.ArgumentParser:
@@ -55,28 +56,3 @@ def read_config_file(config_file: str) -> Dict[str, Any]:
     assert os.path.isfile(config_file), f"not a file: {config_file}"
     with open(config_file, "r") as fh:
         return load(fh)
-
-
-def parse_slobbler_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    parsed_config = {
-        "token": config["user_oauth_token"],
-        "user_id": config["user_id"],
-        "playing_emoji": config["playing_emoji"],
-    }
-    parsed_config["fallback_emojis"] = parsed_config["playing_emoji"][
-        "fallback"
-    ]  # must have at least one
-    parsed_config["valid_playing_emojis"] = [
-        "",  # empty "playing" emoji is valid
-        *parsed_config["fallback_emojis"],
-    ]
-
-    # add player specific emojis
-    parsed_config["valid_playing_emojis"].extend(
-        (
-            emoji
-            for player, emoji in parsed_config["playing_emoji"].items()
-            if player != "fallback"
-        )
-    )
-    return parsed_config
