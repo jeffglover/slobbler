@@ -27,12 +27,16 @@ class SlackStatus(typ.NamedTuple):
     emoji: str
 
 
-class FilterMatch(typ.TypedDict):
+class Match(typ.TypedDict):
     field: str
     partial: str
 
 
-class ExceptionMatch(FilterMatch):
+class FilterMatch(Match):
+    pass
+
+
+class ExceptionMatch(Match):
     emoji: str
     message_format: str
 
@@ -53,6 +57,7 @@ class TrackFilter:
     ):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.passed = True
+        self.missing_fields = set()
         self.filter_match = {}
 
         self.exception_match = next(
@@ -64,7 +69,7 @@ class TrackFilter:
             {},
         )
         if self.exception_match:
-            # if an exception matches skip all other possible filters
+            # if an exception matches, skip all other possible filters
             self.logger.info(
                 f'Exception: {self.exception_match["field"]} contains `{self.exception_match["partial"]}`'
             )

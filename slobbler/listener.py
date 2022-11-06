@@ -76,7 +76,7 @@ class Player:
         self._playing: bool = False
         self._track_info: TrackInfo | None = None
         self._track_info_changed: bool = False
-        self.accepted_message_types = (PLAYBACK_STATUS, METADATA)
+        self.accepted_message_types = {PLAYBACK_STATUS, METADATA}
         self.bus_id = None
         self.interface = None
         self._signal_connection = None
@@ -152,9 +152,7 @@ class Player:
     def handle_properties_changed(
         self, interface_name, message: DBUS_DICT_TYPE, *args, **kwargs
     ):
-        if not any(
-            message_type in message for message_type in self.accepted_message_types
-        ):
+        if not self.accepted_message_types.intersection(message.keys()):
             # some players send noise around their capabilities, ignore that
             return
 
@@ -164,17 +162,17 @@ class Player:
         metadata: DBUS_DICT_TYPE | None = message.get(METADATA)
         playback_status: str | None = message.get(PLAYBACK_STATUS)
 
-        if metadata:
-            self.track_info = metadata
-            if self.playing and self.track_info_changed:
-                self.metadata_update_callback(self.bus_id)
-
-        elif playback_status:
+        if playback_status:
             self.playback_status = playback_status
             if self.playing:
                 # some players, notably Spotify, don't update metadata from startup -> playing
-                self.track_info = self.query_metadata()
+                self.track_info = metadata if metadata else self.query_metadata()
             self.playback_status_changed_callback(self.bus_id)
+
+        elif metadata:
+            self.track_info = metadata
+            if self.playing and self.track_info_changed:
+                self.metadata_update_callback(self.bus_id)
 
     def connect_signal(self) -> dbus.connection.SignalMatch:
         return self.interface.connect_to_signal(
