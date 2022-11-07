@@ -73,7 +73,7 @@ class Player:
         self._full_name: str = ""
         self._name: str = ""
         self._playback_status: str = "Stopped"
-        self._playing: bool = False
+        self._is_playing: bool = False
         self._playback_status_changed: bool = False
         self._playback_started: bool = False
         self._track_info: TrackInfo | None = None
@@ -91,7 +91,7 @@ class Player:
     def connect(self):
         self.bus_id, self.interface = self._get_interface(self.full_name)
         self.playback_status = self.query_playback_status()
-        if self.playing:
+        if self.is_playing:
             self.track_info = self.query_metadata()
 
         self._signal_connection = self.connect_signal()
@@ -131,11 +131,11 @@ class Player:
         now_playing = new_status == "Playing"
 
         # track playback state changes
-        self._playback_started = not self.playing and now_playing
-        self._playback_status_changed = self.playing != now_playing
+        self._playback_started = not self.is_playing and now_playing
+        self._playback_status_changed = self.is_playing != now_playing
 
         self._playback_status = new_status
-        self._playing = now_playing
+        self._is_playing = now_playing
 
         if self.playback_status_changed:
             self.logger.info(
@@ -143,8 +143,8 @@ class Player:
             )
 
     @property
-    def playing(self) -> bool:
-        return self._playing
+    def is_playing(self) -> bool:
+        return self._is_playing
 
     @property
     def playback_status_changed(self) -> bool:
@@ -193,7 +193,7 @@ class Player:
 
         if metadata:
             self.track_info = metadata
-            if self.playing and self.track_info_changed:
+            if self.is_playing and self.track_info_changed:
                 self.metadata_update_callback(self.bus_id)
 
     def connect_signal(self) -> dbus.connection.SignalMatch:
@@ -287,11 +287,11 @@ class PlayerManager:
         self.logger.debug(
             f"[{player}] playback_status_changed() {player.playback_status=}, {player.bus_id}, {self.playing_player_id=}"
         )
-        if player.playing and bus_id != self.playing_player_id:
+        if player.is_playing and bus_id != self.playing_player_id:
             # new playing player detected
             self.handle_new_playing_player(bus_id)
 
-        elif not player.playing and bus_id == self.playing_player_id:
+        elif not player.is_playing and bus_id == self.playing_player_id:
             # playing player has stopped playing
             self.handle_player_not_playing(player)
 
@@ -301,7 +301,7 @@ class PlayerManager:
             f"[{player}]: metadata_update() {player.playback_status=}, {player.track_info=}"
         )
 
-        if player.playing and bus_id == self.playing_player_id:
+        if player.is_playing and bus_id == self.playing_player_id:
             self.player_update_callback(player)
 
     def handle_player_not_playing(self, player: Player):
@@ -316,7 +316,7 @@ class PlayerManager:
 
     def find_first_playing_player(self) -> str:
         bus_id = next(
-            (bus_id for bus_id, player in self.players.items() if player.playing),
+            (bus_id for bus_id, player in self.players.items() if player.is_playing),
             None,
         )
         if bus_id:
@@ -339,7 +339,7 @@ class PlayerManager:
 
         self.logger.info(f"[{repr(player)}] Connected, {player.playback_status}")
 
-        if player.playing:
+        if player.is_playing:
             # in case a player starts up playing
             self.handle_new_playing_player(player.bus_id)
 
