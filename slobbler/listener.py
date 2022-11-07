@@ -74,6 +74,8 @@ class Player:
         self._name: str = ""
         self._playback_status: str = "Stopped"
         self._playing: bool = False
+        self._playback_status_changed: bool = False
+        self._playback_started: bool = False
         self._track_info: TrackInfo | None = None
         self._track_info_changed: bool = False
         self.accepted_message_types = {PLAYBACK_STATUS, METADATA}
@@ -125,13 +127,32 @@ class Player:
 
     @playback_status.setter
     def playback_status(self, status: dbus.String):
-        self._playback_status = str(status)
-        self._playing = status == "Playing"
-        self.logger.info(f"[{self}] playback status changed: {self.playback_status}")
+        new_status = str(status)
+        now_playing = new_status == "Playing"
+
+        # track playback state changes
+        self._playback_started = not self.playing and now_playing
+        self._playback_status_changed = self.playing != now_playing
+
+        self._playback_status = new_status
+        self._playing = now_playing
+
+        if self.playback_status_changed:
+            self.logger.info(
+                f"[{self}] playback status changed: {self.playback_status}"
+            )
 
     @property
     def playing(self) -> bool:
         return self._playing
+
+    @property
+    def playback_status_changed(self) -> bool:
+        return self._playback_status_changed
+
+    @property
+    def playback_started(self) -> bool:
+        return self._playback_started
 
     @property
     def track_info(self) -> TrackInfo | None:
@@ -164,12 +185,13 @@ class Player:
 
         if playback_status:
             self.playback_status = playback_status
-            if self.playing:
+            if self.playback_started:
                 # some players, notably Spotify, don't update metadata from startup -> playing
                 self.track_info = metadata if metadata else self.query_metadata()
-            self.playback_status_changed_callback(self.bus_id)
+            if self.playback_status_changed:
+                self.playback_status_changed_callback(self.bus_id)
 
-        elif metadata:
+        if metadata:
             self.track_info = metadata
             if self.playing and self.track_info_changed:
                 self.metadata_update_callback(self.bus_id)
