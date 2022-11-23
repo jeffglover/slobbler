@@ -10,8 +10,8 @@ Slack status music scrobbler for Linux. Updates slack status based upon any medi
   - For fallback players, randomly chooses from a list
 - Only updates Slack status if no status or already playing is set. Won't override an existing status. Detection based upon the status emoji
 - Configurable required fields (e.g., must have artist and title)
-- Filters, similar format to exceptions, see Advanced config
-- Exceptions to required fields, allow scrobble even when it does not have required fields or filter matches
+- Configurable filters on track metadata (artist, title, album), similar format to exceptions, see Advanced config
+- Exceptions to filters and required fields, allow scrobble even when it does not have required fields or filter matches
   - Choose field and partial text match, along with custom message format and emoji
     ```yaml
     exceptions:
@@ -72,7 +72,7 @@ slobbler:
 
   # Optional track metadata filters
   filters:
-    - field: "artist" # choose field to filter
+    - field: "artist" # choose field to filter, choice of artist, title, album
       partial: "Nickelback" # contents to filter on
 
   # Optional exceptions, based on track metadata. Takes precedence over required fields and filters
@@ -129,7 +129,13 @@ RestartSec=5
 WantedBy=default.target
 ```
 
+#### Start the service
+
 `systemctl --user enable --now slobbler.service`
+
+#### Monitor logs
+
+`journalctl --user -xeu slobbler.service -f`
 
 ## Useful references
 
