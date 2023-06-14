@@ -1,9 +1,11 @@
 {
-    "python.formatting.provider": "black",
     "cSpell.words": [
         "scrobble",
         "scrobbler",
         "Slobble",
         "slobbler"
-    ]
+    ],
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    }
 }

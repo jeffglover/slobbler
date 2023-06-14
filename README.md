@@ -98,7 +98,7 @@ listener:
 5. Click `Create App`
 6. Click `Add features and functionality`
 7. Choose `Permissions`
-8. Click `Add on OAuth Scope` and add `emoji:read`, `users.profile:read`, `users.profile:write`
+8. Click `Add on OAuth Scope` and add `emoji:read`, `users:read`, `users.profile:read`, `users.profile:write`
 9. Copy `User OAuth Token` use that as `user_oauth_token` in slobbler config
 10. Go back to `Basic Information`
 11. Install your app -> `Install to Workspace` and `Allow` permissions

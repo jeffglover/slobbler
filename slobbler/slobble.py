@@ -7,7 +7,7 @@ from json import dumps
 from math import ceil
 from random import choice, seed
 
-from requests import Session
+from requests import Session, Response
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
@@ -122,6 +122,14 @@ class SlackAPI:
             else status_text
         )
 
+    @classmethod
+    def validate_response(cls, response: Response) -> typ.Dict[str, typ.Any]:
+        assert response.ok, f"Bad response from server [{response}]: {response.text}"
+
+        json_response = response.json()
+        assert json_response["ok"], f"Failed because {json_response['error']}"
+        return json_response
+
     def setup_session(self) -> Session:
         retry_strategy = Retry(
             total=3,
@@ -136,29 +144,25 @@ class SlackAPI:
 
         return session
 
-    def read_profile(self) -> typ.Dict[str, typ.Any]:
+    def get_presence(self) -> typ.Dict[str, typ.Any]:
+        response = self.session.get(
+            self._slack_api_fmt.format(command="users.getPresence")
+        )
+        return self.validate_response(response)
+
+    def get_profile(self) -> typ.Dict[str, typ.Any]:
         response = self.session.get(
             self._slack_api_fmt.format(command="users.profile.get")
         )
-        assert response.ok, f"Bad response from server [{response}]: {response.text}"
+        return self.validate_response(response)["profile"]
 
-        json_response = response.json()
-        assert json_response["ok"], f"Failed because {json_response['error']}"
-        return json_response["profile"]
-
-    def write_profile(
-        self, **profile: typ.Dict[str, typ.Any]
-    ) -> typ.Dict[str, typ.Any]:
+    def set_profile(self, **profile: typ.Dict[str, typ.Any]) -> typ.Dict[str, typ.Any]:
         response = self.session.post(
             self._slack_api_fmt.format(command="users.profile.set"),
             headers=self.post_headers,
             data=dumps({"profile": profile}).encode("utf-8"),
         )
-        assert response.ok, f"Bad response from server [{response}]: {response.text}"
-
-        json_response = response.json()
-        assert json_response["ok"], f"Failed because {json_response['error']}"
-        return json_response["profile"]
+        return self.validate_response(response)["profile"]
 
 
 class Slobble:
@@ -166,6 +170,7 @@ class Slobble:
     text_key = "status_text"
     emoji_key = "status_emoji"
     expiration_key = "status_expiration"
+    presence_key = "presence"
     profile_keys = {text_key, emoji_key}
 
     def __init__(self, slack_api: SlackAPI, config: typ.Dict[str, typ.Any]):
@@ -268,27 +273,34 @@ class Slobble:
 
     def can_update(self) -> SlackStatus | typ.Literal[False]:
         """don't override any other status, based upon the current emoji"""
-        current_status = self.read_status()
+        if self.is_active():
+            current_status = self.read_status()
 
-        if current_status.emoji in self.updatable_emojis:
-            return current_status
+            if current_status.emoji in self.updatable_emojis:
+                return current_status
 
-        self.logger.info(f"Cannot update because emoji is set: {current_status.emoji}")
+            self.logger.info(
+                f"Cannot update because emoji is set: {current_status.emoji}"
+            )
+        else:
+            self.logger.info(f"Cannot update because user is away")
+
         return False
 
     def pick_emoji(self, player_name: str) -> str:
         return self.player_emoji.get(
             player_name,  # try player name specific emoji
-            choice(
-                self.default_emojis
-            ),  # fallback to a random choice of fallback emojis
+            choice(self.default_emojis),  # fallback to a random choice of emojis
         )
 
+    def is_active(self) -> bool:
+        return self.slack_api.get_presence()[self.presence_key] == "active"
+
     def read_status(self) -> SlackStatus:
-        return self.parse_status(self.slack_api.read_profile())
+        return self.parse_status(self.slack_api.get_profile())
 
     def write_status(self, message: str, emoji: str, expiration: int) -> SlackStatus:
-        response = self.slack_api.write_profile(
+        response = self.slack_api.set_profile(
             **{
                 self.text_key: message,
                 self.emoji_key: emoji,
