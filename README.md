@@ -94,7 +94,7 @@ listener:
 1. Add slobbler to [Slack Apps](https://api.slack.com/apps)
 2. Click `Create New App`
 3. Choose `From scratch`
-4. App Name -> `Slobber` and choose your workspace
+4. App Name -> `Slobbler` and choose your workspace
 5. Click `Create App`
 6. Click `Add features and functionality`
 7. Choose `Permissions`

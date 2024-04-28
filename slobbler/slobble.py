@@ -60,45 +60,65 @@ class TrackFilter:
         self.missing_fields = set()
         self.filter_match = {}
 
+        self.required_fields = required_fields
+        self.filters = filters
+        self.exceptions = exceptions
+        self.track_info = track_info
+
+        self.perform_checks()
+
+    def perform_checks(self):
+        if not self.check_exception_match():
+            if not self.check_missing_fields():
+                self.check_filters()
+
+    def check_exception_match(self) -> bool:
         self.exception_match = next(
             (
                 exception
-                for exception in exceptions
-                if exception["partial"] in track_info[exception["field"]]
+                for exception in self.exceptions
+                if exception["partial"] in self.track_info[exception["field"]]
             ),
             {},
         )
+
         if self.exception_match:
             # if an exception matches, skip all other possible filters
             self.logger.info(
                 f'Exception: {self.exception_match["field"]} contains `{self.exception_match["partial"]}`'
             )
-        else:
-            # check for missing fields
-            self.missing_fields = required_fields.intersection(
-                track_info.empty_fields()
-            )
+            return True
+        return False
 
-            if self.missing_fields:
-                self.passed = False
-                self.logger.info(
-                    f"Missing required fields: {', '.join(self.missing_fields)}"
-                )
-            else:
-                # if no missing fields found, check filters
-                self.filter_match = next(
-                    (
-                        filter
-                        for filter in filters
-                        if filter["partial"] in track_info[filter["field"]]
-                    ),
-                    {},
-                )
-                if self.filter_match:
-                    self.passed = False
-                    self.logger.info(
-                        f'Filtered: {self.filter_match["field"]} contains `{self.filter_match["partial"]}`'
-                    )
+    def check_missing_fields(self) -> bool:
+        self.missing_fields = self.required_fields.intersection(
+            self.track_info.empty_fields()
+        )
+
+        if self.missing_fields:
+            self.passed = False
+            self.logger.info(
+                f"Missing required fields: {', '.join(self.missing_fields)}"
+            )
+            return True
+        return False
+
+    def check_filters(self) -> bool:
+        self.filter_match = next(
+            (
+                filter
+                for filter in self.filters
+                if filter["partial"] in self.track_info[filter["field"]]
+            ),
+            {},
+        )
+        if self.filter_match:
+            self.passed = False
+            self.logger.info(
+                f'Filtered: {self.filter_match["field"]} contains `{self.filter_match["partial"]}`'
+            )
+            return True
+        return False
 
 
 class SlackAPI:
